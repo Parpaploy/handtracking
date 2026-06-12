@@ -1,0 +1,105 @@
+export interface Landmark {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface LandmarkConnection {
+  start: number;
+  end: number;
+}
+
+export interface HandResults {
+  image: CanvasImageSource;
+  multiHandLandmarks?: Landmark[][];
+}
+
+export interface HandsInstance {
+  setOptions: (opts: object) => void;
+  onResults: (cb: (results: HandResults) => void) => void;
+  send: (input: { image: HTMLVideoElement }) => Promise<void>;
+}
+
+export type HandsConstructor = new (config: {
+  locateFile: (f: string) => string;
+}) => HandsInstance;
+
+export interface Landmark {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface LandmarkConnection {
+  start: number;
+  end: number;
+}
+
+export interface HandResults {
+  image: CanvasImageSource;
+  multiHandLandmarks?: Landmark[][];
+  multiHandedness?: Handedness[];
+}
+
+export interface Handedness {
+  label: "Left" | "Right";
+  score: number;
+}
+
+export type DrawMode = "draw" | "erase" | "idle";
+
+export interface CanvasRenderingContext2DWithRoundRect extends CanvasRenderingContext2D {
+  roundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii?: number | number[],
+  ): void;
+}
+
+export interface Landmark {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface HandResult {
+  label: "Left" | "Right";
+  score: number;
+}
+
+export interface newHandResults {
+  image: HTMLVideoElement | HTMLCanvasElement;
+  multiHandLandmarks: Landmark[][];
+  multiHandedness: HandResult[];
+}
+
+export interface HandsOptions {
+  maxNumHands: number;
+  modelComplexity: number;
+  minDetectionConfidence: number;
+  minTrackingConfidence: number;
+}
+
+export interface newHandsInstance {
+  setOptions(opts: HandsOptions): void;
+  onResults(cb: (r: HandResults) => void): void;
+  send(input: { image: HTMLVideoElement }): Promise<void>;
+}
+
+export interface DragState {
+  tileIdx: number;
+  startX: number;
+  startY: number;
+  axis: "h" | "v" | null;
+  committed: boolean;
+}
+
+export interface RunnerOverlayProps {
+  runnerPosRef: React.RefObject<number>;
+  runnerWonRef: React.RefObject<boolean>;
+  runnerSpeedRef: React.RefObject<number>;
+  width: number;
+  height: number;
+}
