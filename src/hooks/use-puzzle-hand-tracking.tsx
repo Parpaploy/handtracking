@@ -237,8 +237,16 @@ export function usePuzzleHandTracking(
   const dragRef = useRef<Map<string, DragState>>(new Map());
 
   const updateFrameBox = useCallback((box: FrameBox) => {
+    const prev = frameBoxRef.current;
     frameBoxRef.current = box;
-    setFrameBox(box);
+    if (
+      box.x !== prev.x ||
+      box.y !== prev.y ||
+      box.w !== prev.w ||
+      box.h !== prev.h
+    ) {
+      setFrameBox(box);
+    }
   }, []);
 
   const enterPuzzle = useCallback(() => {
@@ -690,7 +698,7 @@ export function usePuzzleHandTracking(
     camCanvas.height = overlay.height = 560;
 
     const hands = new Hands({
-      locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+      locateFile: (f) => `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
       maxNumHands: 2,
@@ -717,26 +725,42 @@ export function usePuzzleHandTracking(
     });
 
     let animId: number;
+    let cancelled = false;
+    let activeStream: MediaStream | null = null;
     navigator.mediaDevices
       .getUserMedia({ video: { width: 720, height: 560 } })
       .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        activeStream = stream;
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           video.play().then(() => {
+            if (cancelled) return;
             setStatus("ไม่พบมือ");
             const loop = async () => {
+              if (cancelled) return;
               if (video.readyState === 4) await hands.send({ image: video });
+              if (cancelled) return;
               animId = requestAnimationFrame(loop);
             };
             loop().catch(console.error);
           });
         };
       })
-      .catch((err: Error) => setStatus(`❌ ${err.message}`));
+      .catch((err: Error) => {
+        if (!cancelled) setStatus(`❌ ${err.message}`);
+      });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(animId);
-      (video.srcObject as MediaStream)?.getTracks().forEach((t) => t.stop());
+      activeStream?.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      video.onloadedmetadata = null;
+      hands.close().catch(() => {});
     };
   }, [videoRef, camCanvasRef, overlayCanvasRef, drawResize, drawPuzzle]);
 

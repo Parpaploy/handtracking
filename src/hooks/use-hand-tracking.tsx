@@ -87,7 +87,7 @@ export function useHandTracking(
 
     const hands = new Hands({
       locateFile: (f: string) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+        `/mediapipe/hands/${f}`,
     });
 
     hands.setOptions({
@@ -125,19 +125,28 @@ export function useHandTracking(
     });
 
     let animId: number;
+    let cancelled = false;
+    let activeStream: MediaStream | null = null;
 
     navigator.mediaDevices
       .getUserMedia({ video: { width: 640, height: 480 } })
       .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        activeStream = stream;
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           video
             .play()
             .then(() => {
               const loop = async () => {
+                if (cancelled) return;
                 if (video.readyState === 4) {
                   await hands.send({ image: video });
                 }
+                if (cancelled) return;
                 animId = requestAnimationFrame(loop);
               };
               loop().catch(console.error);
@@ -146,13 +155,16 @@ export function useHandTracking(
         };
       })
       .catch((err: Error) => {
-        setStatus(`❌ Error: ${err.message}`);
+        if (!cancelled) setStatus(`❌ Error: ${err.message}`);
       });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(animId);
-      const stream = video.srcObject as MediaStream;
-      stream?.getTracks().forEach((t) => t.stop());
+      activeStream?.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      video.onloadedmetadata = null;
+      hands.close().catch(() => {});
     };
   }, [videoRef, canvasRef]);
 

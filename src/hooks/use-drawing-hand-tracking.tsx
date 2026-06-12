@@ -234,7 +234,7 @@ export function useDrawingHandTracking(
 
     const hands = new Hands({
       locateFile: (f: string) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+        `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
       maxNumHands: 2,
@@ -274,6 +274,9 @@ export function useDrawingHandTracking(
       if (drawingCanvas) ctx.drawImage(drawingCanvas, 0, 0);
 
       const landmarks = results.multiHandLandmarks ?? [];
+      // Frames are sent to MediaPipe unmirrored, so its "Left" label is
+      // the user's RIGHT hand. Kept on purpose: right hand draws,
+      // left hand erases. Don't "fix" by swapping labels.
       const handedness = results.multiHandedness ?? [];
       const drawingCtx = drawingCanvas?.getContext("2d") ?? null;
 
@@ -399,16 +402,25 @@ export function useDrawingHandTracking(
     });
 
     let animId: number;
+    let cancelled = false;
+    let activeStream: MediaStream | null = null;
     navigator.mediaDevices
       .getUserMedia({ video: { width: 720, height: 560 } })
       .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        activeStream = stream;
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           video
             .play()
             .then(() => {
               const loop = async () => {
+                if (cancelled) return;
                 if (video.readyState === 4) await hands.send({ image: video });
+                if (cancelled) return;
                 animId = requestAnimationFrame(loop);
               };
               loop().catch(console.error);
@@ -417,12 +429,16 @@ export function useDrawingHandTracking(
         };
       })
       .catch((err: Error) => {
-        setStatus(`❌ Error: ${err.message}`);
+        if (!cancelled) setStatus(`❌ Error: ${err.message}`);
       });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(animId);
-      (video.srcObject as MediaStream)?.getTracks().forEach((t) => t.stop());
+      activeStream?.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      video.onloadedmetadata = null;
+      hands.close().catch(() => {});
     };
   }, [videoRef, canvasRef]);
 

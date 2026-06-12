@@ -1,5 +1,55 @@
 @import "tailwindcss";
 
+@theme {
+  /* palette — terracotta clay studio */
+  --color-clay: #c15f3c;
+  --color-clay-deep: #9d4a2d;
+  --color-paper: #fafaf7;
+  --color-stone: #b1ada1;
+  --color-stone-light: #ddd9cf;
+  --color-ink: #433d35;
+  --color-ink-soft: #6f695e;
+  --color-ink-deep: #2b2722;
+  --color-surface: #ffffff;
+
+  --font-display: "Mitr", "Anuphan", sans-serif;
+  --font-body: "Anuphan", "Mitr", sans-serif;
+
+  --animate-rise: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 * {
   box-sizing: border-box;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-clay) 25%, transparent);
 }

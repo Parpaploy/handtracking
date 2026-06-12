@@ -24,21 +24,27 @@ export default function PudtanRunner({
   const jump = useFBX("/animations/Pudtan/jump.fbx");
   const pray = useFBX("/animations/Pudtan/pray.fbx");
 
-  model.traverse((child) => {
-    if (!(child instanceof THREE.Mesh) || !child.material) return;
-    const mats = Array.isArray(child.material)
-      ? (child.material as THREE.Material[])
-      : [child.material as THREE.Material];
-    child.material = mats.map((m) => {
-      const src = m as THREE.MeshStandardMaterial;
-      return new THREE.MeshStandardMaterial({
-        color: src.color ? src.color.clone() : new THREE.Color(0xffffff),
-        roughness: 1,
-        metalness: 0,
-        map: src.map ?? null,
+  useEffect(() => {
+    const created: THREE.Material[] = [];
+    model.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.material) return;
+      const mats = Array.isArray(child.material)
+        ? (child.material as THREE.Material[])
+        : [child.material as THREE.Material];
+      child.material = mats.map((m) => {
+        const src = m as THREE.MeshStandardMaterial;
+        const replacement = new THREE.MeshStandardMaterial({
+          color: src.color ? src.color.clone() : new THREE.Color(0xffffff),
+          roughness: 1,
+          metalness: 0,
+          map: src.map ?? null,
+        });
+        created.push(replacement);
+        return replacement;
       });
     });
-  });
+    return () => created.forEach((m) => m.dispose());
+  }, [model]);
 
   const mergedAnimations = useMemo<THREE.AnimationClip[]>(
     () => [
@@ -124,7 +130,7 @@ export default function PudtanRunner({
     groupRef.current.position.set(worldX, worldY + bounce, 0);
 
     groupRef.current.rotation.x = -0.3;
-    groupRef.current.rotation.y = won ? -0.3 : speed > 0.05 ? 90 : 0.3;
+    groupRef.current.rotation.y = won ? -0.3 : speed > 0.05 ? Math.PI / 2 : 0.3;
 
     const targetAnim = won ? "pray" : speed > 0.05 ? "run" : "idle";
     if (targetAnim !== currentAnimRef.current) {

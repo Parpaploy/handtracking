@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <script src="/mediapipe/hands/hands.js"></script>
+  </head>
+  <body style="font: 32px sans-serif; padding: 40px">
+    <h1 id="out">LOADING...</h1>
+    <script>
+      const out = document.getElementById("out");
+      try {
+        const hands = new Hands({
+          locateFile: (f) => `/mediapipe/hands/${f}`,
+        });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1 });
+        hands.onResults((r) => {
+          out.textContent =
+            "MP OK — onResults fired, hands: " +
+            (r.multiHandLandmarks ? r.multiHandLandmarks.length : 0);
+          out.style.color = "green";
+        });
+        const c = document.createElement("canvas");
+        c.width = 640;
+        c.height = 480;
+        c.getContext("2d").fillRect(0, 0, 640, 480);
+        hands
+          .send({ image: c })
+          .catch((e) => {
+            out.textContent = "SEND FAIL: " + e.message;
+            out.style.color = "red";
+          });
+      } catch (e) {
+        out.textContent = "INIT FAIL: " + e.message;
+        out.style.color = "red";
+      }
+    </script>
+  </body>
+</html>

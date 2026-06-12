@@ -167,6 +167,7 @@ export function usePianoHandTracking(
 
   const octaveRef = useRef(4);
   const activeNotesMap = useRef(new Map<string, NoteNode>());
+  const lastNotesKeyRef = useRef("");
   const prevPressed = useRef(new Set<string>());
 
   const setOctave = useCallback((fn: (prev: number) => number) => {
@@ -192,7 +193,7 @@ export function usePianoHandTracking(
 
     const hands = new Hands({
       locateFile: (f: string) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+        `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
       maxNumHands: 2,
@@ -273,30 +274,51 @@ export function usePianoHandTracking(
       prevPressed.current = newPressed;
 
       setHandCount(landmarks.length);
-      setActiveNoteNames([...new Set(noteNames)]);
+      const uniqueNotes = [...new Set(noteNames)];
+      const notesKey = uniqueNotes.join("|");
+      if (notesKey !== lastNotesKeyRef.current) {
+        lastNotesKeyRef.current = notesKey;
+        setActiveNoteNames(uniqueNotes);
+      }
       setStatus("tracking...");
     });
 
     let animId: number;
+    let cancelled = false;
+    let activeStream: MediaStream | null = null;
     navigator.mediaDevices
       .getUserMedia({ video: { width: 640, height: 480 } })
       .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        activeStream = stream;
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           video.play().then(() => {
+            if (cancelled) return;
             const loop = async () => {
+              if (cancelled) return;
               if (video.readyState === 4) await hands.send({ image: video });
+              if (cancelled) return;
               animId = requestAnimationFrame(loop);
             };
             loop().catch(console.error);
           });
         };
       })
-      .catch((err: Error) => setStatus(`❌ ${err.message}`));
+      .catch((err: Error) => {
+        if (!cancelled) setStatus(`❌ ${err.message}`);
+      });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(animId);
-      (video.srcObject as MediaStream)?.getTracks().forEach((t) => t.stop());
+      activeStream?.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      video.onloadedmetadata = null;
+      hands.close().catch(() => {});
       notesMap.forEach((_, k) => stopNote(notesMap, k));
     };
   }, [videoRef, canvasRef]);

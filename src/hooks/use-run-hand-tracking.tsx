@@ -126,6 +126,7 @@ export function useRunHandTracking(
   const [activeFigerNames, setActiveFigerNames] = useState<string[]>([]);
 
   const prevPressed = useRef(new Set<string>());
+  const lastFingersKeyRef = useRef("");
 
   const runnerPosRef = useRef(0);
   const runnerSpeedRef = useRef(0);
@@ -143,9 +144,11 @@ export function useRunHandTracking(
     canvas.width = 720;
     canvas.height = 560;
 
+    let winResetId: ReturnType<typeof setTimeout> | undefined;
+
     const hands = new Hands({
       locateFile: (f: string) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+        `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
       maxNumHands: 2,
@@ -243,7 +246,7 @@ export function useRunHandTracking(
 
         if (runnerPosRef.current >= RUNNER_GOAL) {
           runnerWonRef.current = true;
-          setTimeout(() => {
+          winResetId = setTimeout(() => {
             runnerPosRef.current = 0;
             runnerSpeedRef.current = 0;
             runnerWonRef.current = false;
@@ -254,30 +257,52 @@ export function useRunHandTracking(
       prevPressed.current = newPressed;
 
       setHandCount(landmarks.length);
-      setActiveFigerNames([...new Set(fingerNames)]);
+      const uniqueFingers = [...new Set(fingerNames)];
+      const fingersKey = uniqueFingers.join("|");
+      if (fingersKey !== lastFingersKeyRef.current) {
+        lastFingersKeyRef.current = fingersKey;
+        setActiveFigerNames(uniqueFingers);
+      }
       setStatus("tracking...");
     });
 
     let animId: number;
+    let cancelled = false;
+    let activeStream: MediaStream | null = null;
     navigator.mediaDevices
       .getUserMedia({ video: { width: 640, height: 480 } })
       .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        activeStream = stream;
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           video.play().then(() => {
+            if (cancelled) return;
             const loop = async () => {
+              if (cancelled) return;
               if (video.readyState === 4) await hands.send({ image: video });
+              if (cancelled) return;
               animId = requestAnimationFrame(loop);
             };
             loop().catch(console.error);
           });
         };
       })
-      .catch((err: Error) => setStatus(`❌ ${err.message}`));
+      .catch((err: Error) => {
+        if (!cancelled) setStatus(`❌ ${err.message}`);
+      });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(animId);
-      (video.srcObject as MediaStream)?.getTracks().forEach((t) => t.stop());
+      clearTimeout(winResetId);
+      activeStream?.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+      video.onloadedmetadata = null;
+      hands.close().catch(() => {});
     };
   }, [videoRef, canvasRef]);
 

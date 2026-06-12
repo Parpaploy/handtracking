@@ -18,6 +18,7 @@ export interface HandsInstance {
   setOptions: (opts: object) => void;
   onResults: (cb: (results: HandResults) => void) => void;
   send: (input: { image: HTMLVideoElement }) => Promise<void>;
+  close: () => Promise<void>;
 }
 
 export type HandsConstructor = new (config: {
@@ -86,6 +87,7 @@ export interface newHandsInstance {
   setOptions(opts: HandsOptions): void;
   onResults(cb: (r: HandResults) => void): void;
   send(input: { image: HTMLVideoElement }): Promise<void>;
+  close(): Promise<void>;
 }
 
 export interface DragState {
