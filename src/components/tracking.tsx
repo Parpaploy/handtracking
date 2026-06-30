@@ -4,7 +4,10 @@ import { useTracking } from "../hooks/use-tracking";
 export default function Tracking() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { status, handCount, faceCount } = useTracking(videoRef, canvasRef);
+  const { status, handCount, faceCount, objectCount } = useTracking(
+    videoRef,
+    canvasRef,
+  );
 
   return (
     <div className="w-full h-screen bg-black flex flex-col">
@@ -12,6 +15,7 @@ export default function Tracking() {
         <p>สถานะ: {status}</p>
         <p>มือที่พบ: {handCount} มือ</p>
         <p>ใบหน้าที่พบ: {faceCount} ใบหน้า</p>
+        <p>วัตถุที่พบ: {objectCount} ชิ้น</p>
       </div>
       <div className="relative w-full h-full overflow-hidden">
         <video

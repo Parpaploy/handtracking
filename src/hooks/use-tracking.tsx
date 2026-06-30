@@ -5,10 +5,17 @@ import type {
   HandResults,
   HandsConstructor,
   Landmark,
+  CocoSsdNamespace,
+  CocoSsdModel,
+  DetectedObject,
+  TfNamespace,
+  TrackedObject,
 } from "../interfaces/hand-tracking.interface";
 
 declare const Hands: HandsConstructor;
 declare const FaceMesh: FaceMeshConstructorLocal;
+declare const cocoSsd: CocoSsdNamespace;
+declare const tf: TfNamespace;
 
 const CONNECTIONS = [
   [0, 1],
@@ -282,6 +289,154 @@ function drawFace(
   ctx.restore();
 }
 
+const IOU_MATCH_THRESHOLD = 0.3;
+const MAX_MISSED_FRAMES = 5;
+const SMOOTHING_FACTOR = 0.35;
+const MIN_CONFIDENCE = 0.45;
+
+const OBJECT_COLORS = [
+  "#FF6B6B",
+  "#4ECDC4",
+  "#FFD93D",
+  "#6BCB77",
+  "#4D96FF",
+  "#FF6FB5",
+  "#C780FA",
+  "#FFA45B",
+];
+
+function getColorForClass(className: string) {
+  let hash = 0;
+  for (let i = 0; i < className.length; i++) {
+    hash = className.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return OBJECT_COLORS[Math.abs(hash) % OBJECT_COLORS.length];
+}
+
+function computeIOU(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+): number {
+  const [ax, ay, aw, ah] = a;
+  const [bx, by, bw, bh] = b;
+  const x1 = Math.max(ax, bx);
+  const y1 = Math.max(ay, by);
+  const x2 = Math.min(ax + aw, bx + bw);
+  const y2 = Math.min(ay + ah, by + bh);
+  const interW = Math.max(0, x2 - x1);
+  const interH = Math.max(0, y2 - y1);
+  const interArea = interW * interH;
+  const unionArea = aw * ah + bw * bh - interArea;
+  return unionArea <= 0 ? 0 : interArea / unionArea;
+}
+
+function lerpBbox(
+  prev: [number, number, number, number],
+  next: [number, number, number, number],
+  factor: number,
+): [number, number, number, number] {
+  return [
+    prev[0] + (next[0] - prev[0]) * factor,
+    prev[1] + (next[1] - prev[1]) * factor,
+    prev[2] + (next[2] - prev[2]) * factor,
+    prev[3] + (next[3] - prev[3]) * factor,
+  ];
+}
+
+function createTrackedObjectFactory() {
+  let nextTrackId = 0;
+
+  return function updateTrackedObjects(
+    tracked: TrackedObject[],
+    detections: DetectedObject[],
+  ): TrackedObject[] {
+    const filtered = detections.filter((d) => d.score >= MIN_CONFIDENCE);
+    const usedDetectionIdx = new Set<number>();
+    const updated: TrackedObject[] = [];
+
+    for (const t of tracked) {
+      let bestIdx = -1;
+      let bestIOU = 0;
+      for (let i = 0; i < filtered.length; i++) {
+        if (usedDetectionIdx.has(i)) continue;
+        if (filtered[i].class !== t.class) continue;
+        const iou = computeIOU(t.bbox, filtered[i].bbox);
+        if (iou > bestIOU) {
+          bestIOU = iou;
+          bestIdx = i;
+        }
+      }
+
+      if (bestIdx !== -1 && bestIOU >= IOU_MATCH_THRESHOLD) {
+        const det = filtered[bestIdx];
+        usedDetectionIdx.add(bestIdx);
+        updated.push({
+          id: t.id,
+          bbox: det.bbox,
+          class: det.class,
+          score: det.score,
+          missedFrames: 0,
+          smoothedBbox: lerpBbox(t.smoothedBbox, det.bbox, SMOOTHING_FACTOR),
+        });
+      } else if (t.missedFrames < MAX_MISSED_FRAMES) {
+        updated.push({
+          ...t,
+          missedFrames: t.missedFrames + 1,
+        });
+      }
+    }
+
+    for (let i = 0; i < filtered.length; i++) {
+      if (usedDetectionIdx.has(i)) continue;
+      const det = filtered[i];
+      updated.push({
+        id: nextTrackId++,
+        bbox: det.bbox,
+        class: det.class,
+        score: det.score,
+        missedFrames: 0,
+        smoothedBbox: det.bbox,
+      });
+    }
+
+    return updated;
+  };
+}
+
+function drawObjects(
+  ctx: CanvasRenderingContext2D,
+  objects: TrackedObject[],
+  w: number,
+) {
+  for (const obj of objects) {
+    const alpha =
+      obj.missedFrames === 0
+        ? 1
+        : Math.max(0, 1 - obj.missedFrames / MAX_MISSED_FRAMES);
+
+    const [x, y, bw, bh] = obj.smoothedBbox;
+    const mirroredX = w - x - bw;
+    const color = getColorForClass(obj.class);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mirroredX, y, bw, bh);
+
+    const label = `${obj.class} ${Math.round(obj.score * 100)}%`;
+    ctx.font = "14px sans-serif";
+    const textWidth = ctx.measureText(label).width;
+
+    ctx.fillStyle = color;
+    ctx.fillRect(mirroredX, y - 20, textWidth + 10, 20);
+
+    ctx.fillStyle = "#000000";
+    ctx.fillText(label, mirroredX + 5, y - 5);
+    ctx.restore();
+  }
+}
+
 export function useTracking(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
@@ -289,6 +444,7 @@ export function useTracking(
   const [status, setStatus] = useState("กำลังเริ่ม...");
   const [handCount, setHandCount] = useState(0);
   const [faceCount, setFaceCount] = useState(0);
+  const [objectCount, setObjectCount] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -302,6 +458,9 @@ export function useTracking(
 
     let latestHandLandmarks: Landmark[][] = [];
     let latestFaceLandmarks: Landmark[][] = [];
+    let latestObjects: TrackedObject[] = [];
+    let objectModel: CocoSsdModel | null = null;
+    const updateTrackedObjects = createTrackedObjectFactory();
 
     const hands = new Hands({
       locateFile: (f: string) => `/mediapipe/hands/${f}`,
@@ -331,8 +490,10 @@ export function useTracking(
       setFaceCount(latestFaceLandmarks.length);
     });
 
-    let animId: number;
-    let detectId: number;
+    let animId = 0;
+    let detectId = 0;
+    let objectDetectTimeoutId: number | null = null;
+    let objectDetectFrameId = 0;
     let cancelled = false;
     let activeStream: MediaStream | null = null;
 
@@ -350,6 +511,8 @@ export function useTracking(
       ctx.scale(-1, 1);
       ctx.drawImage(video, -w, 0, w, h);
       ctx.restore();
+
+      drawObjects(ctx, latestObjects, w);
 
       for (const lm of latestFaceLandmarks) {
         const mirroredLm = lm.map((p) => ({ ...p, x: 1 - p.x }));
@@ -374,6 +537,41 @@ export function useTracking(
       detectId = requestAnimationFrame(detectLoop);
     };
 
+    const objectDetectLoop = async () => {
+      if (cancelled) return;
+      if (objectModel && video.readyState === 4) {
+        try {
+          const predictions = await objectModel.detect(video);
+          if (cancelled) return;
+          latestObjects = updateTrackedObjects(latestObjects, predictions);
+          setObjectCount(
+            latestObjects.filter((o) => o.missedFrames === 0).length,
+          );
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      if (cancelled) return;
+      objectDetectTimeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        objectDetectFrameId = requestAnimationFrame(objectDetectLoop);
+      }, 200);
+    };
+
+    const initObjectModel = async () => {
+      try {
+        await tf.setBackend("webgl");
+        await tf.ready();
+        const model = await cocoSsd.load({ base: "mobilenet_v2" });
+        if (cancelled) return;
+        objectModel = model;
+      } catch (err) {
+        console.error("โหลด object detection model ไม่สำเร็จ:", err);
+      }
+    };
+
+    initObjectModel();
+
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -395,6 +593,7 @@ export function useTracking(
             .then(() => {
               setStatus("tracking...");
               detectLoop().catch(console.error);
+              objectDetectLoop().catch(console.error);
               renderLoop();
             })
             .catch(console.error);
@@ -408,6 +607,8 @@ export function useTracking(
       cancelled = true;
       cancelAnimationFrame(animId);
       cancelAnimationFrame(detectId);
+      if (objectDetectTimeoutId !== null) clearTimeout(objectDetectTimeoutId);
+      cancelAnimationFrame(objectDetectFrameId);
       activeStream?.getTracks().forEach((t) => t.stop());
       video.srcObject = null;
       video.onloadedmetadata = null;
@@ -416,5 +617,5 @@ export function useTracking(
     };
   }, [videoRef, canvasRef]);
 
-  return { status, handCount, faceCount };
+  return { status, handCount, faceCount, objectCount };
 }

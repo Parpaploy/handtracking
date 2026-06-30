@@ -133,3 +133,35 @@ export interface FaceMeshConstructorLocal {
     close: () => Promise<void>;
   };
 }
+
+export interface DetectedObject {
+  bbox: [number, number, number, number];
+  class: string;
+  score: number;
+}
+
+export interface CocoSsdModel {
+  detect: (input: HTMLVideoElement) => Promise<DetectedObject[]>;
+}
+
+export interface CocoSsdLoadConfig {
+  base?: "lite_mobilenet_v2" | "mobilenet_v1" | "mobilenet_v2";
+}
+
+export interface CocoSsdNamespace {
+  load: (config?: CocoSsdLoadConfig) => Promise<CocoSsdModel>;
+}
+
+export interface TfNamespace {
+  setBackend: (name: string) => Promise<boolean>;
+  ready: () => Promise<void>;
+}
+
+export interface TrackedObject {
+  id: number;
+  bbox: [number, number, number, number];
+  class: string;
+  score: number;
+  missedFrames: number;
+  smoothedBbox: [number, number, number, number];
+}
