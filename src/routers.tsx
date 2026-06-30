@@ -5,11 +5,13 @@ import PuzzleHandTracking from "./components/puzzle-hand-tracking";
 import Menu from "./menu";
 import RunHandTracking from "./components/run-hand-tracking";
 import SteamTracking from "./components/steam-tracking";
-// import HandTracking from "./components/hand-tracking";
+import Tracking from "./components/tracking";
+import MoodTracking from "./components/mood-tracking";
 
 export const router = createBrowserRouter([
   { path: "/", element: <Menu /> },
-  // { path: "/tracker", element: <HandTracking /> },
+  { path: "/tracker", element: <Tracking /> },
+  { path: "/mood", element: <MoodTracking /> },
   { path: "/drawing", element: <DrawingHandTracking /> },
   { path: "/piano", element: <PianoHandTracking /> },
   { path: "/puzzle", element: <PuzzleHandTracking /> },

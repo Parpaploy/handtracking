@@ -263,7 +263,112 @@ function GlyphSteam() {
   );
 }
 
+function GlyphTrack() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 56 56" fill="none" aria-hidden>
+      <path
+        d="M28,11 q13,0 13,15 q0,17 -13,22 q-13,-5 -13,-22 q0,-15 13,-15 z"
+        stroke={BONE}
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <circle cx="21" cy="25" r="1.8" fill={BONE} />
+      <circle cx="35" cy="25" r="1.8" fill={BONE} />
+      <path
+        d="M23,35 q5,3.5 10,0"
+        stroke={BONE}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <circle
+        cx="35"
+        cy="25"
+        r="6.5"
+        stroke={ACTIVE}
+        strokeWidth="1.6"
+        opacity="0.55"
+      />
+      <path
+        d="M35,15.5 v3 M35,30.5 v3 M24.5,25 h3 M42.5,25 h3"
+        stroke={ACTIVE}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M9,12 v-3 h3 M9,46 v3 h3 M47,12 v-3 h-3 M47,46 v3 h-3"
+        stroke={ACTIVE}
+        strokeWidth="2"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
+    </svg>
+  );
+}
+
+function GlyphMood() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 56 56" fill="none" aria-hidden>
+      <path
+        d="M27,10 q14,0 14,15 q0,17 -14,22 q-14,-5 -14,-22 q0,-15 14,-15 z"
+        stroke={BONE}
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+
+      <path
+        d="M16,24 q4,-4 8,-1"
+        stroke={ACTIVE}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M30,23 q4,-1.5 8,0.5"
+        stroke={BONE}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="20" cy="27" r="1.7" fill={ACTIVE} />
+      <circle cx="34" cy="27" r="1.7" fill={BONE} />
+
+      <path
+        d="M19,35 q8,6 16,-1"
+        stroke={ACTIVE}
+        strokeWidth="2.3"
+        strokeLinecap="round"
+      />
+
+      <circle cx="45" cy="14" r="2" stroke={BONE_FADE} strokeWidth="1.6" />
+      <path
+        d="M43,14 h4"
+        stroke={BONE_FADE}
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M42,42 q3,-3 6,0"
+        stroke={BONE_FADE}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const GAMES = [
+  {
+    path: "/tracker",
+    name: "ติดตามมือ-หน้า",
+    desc: "ขยับมือและหน้า ดูจุดติดตามแบบสด",
+    glyph: <GlyphTrack />,
+  },
+  {
+    path: "/mood",
+    name: "จับอารมณ์",
+    desc: "ทำหน้าต่างๆ ให้กล้องทายอารมณ์",
+    glyph: <GlyphMood />,
+  },
   {
     path: "/drawing",
     name: "วาดรูป",
