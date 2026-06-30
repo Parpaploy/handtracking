@@ -12,17 +12,23 @@ declare const FaceMesh: FaceMeshConstructorLocal;
 
 const BLUR_PX = 22;
 
-const WIPE_RADIUS = 18;
+const WIPE_RADIUS = 15;
 const WIPE_STRENGTH = 0.75;
 const WIPE_STEP = Math.max(WIPE_RADIUS * 0.4, 4);
 const MAX_INTERP_DIST = 140;
 const PINCH_THRESHOLD = 0.05;
 
+const FIST_WIPE_RADIUS = 48;
+const FIST_WIPE_STRENGTH = 0.85;
+const FIST_WIPE_STEP = Math.max(FIST_WIPE_RADIUS * 0.4, 4);
+const FIST_CURL_TIP_TO_MCP_RATIO = 1.15;
+const FIST_MIN_CURLED_FINGERS = 3;
+
 const BREATH_MIN_RADIUS = 55;
 const BREATH_MAX_RADIUS = 200;
 const BREATH_RAMP_FRAMES = 20;
 const BREATH_DECAY_PER_FRAME = 1;
-const BREATH_STRENGTH_PER_FRAME = 0.13;
+const BREATH_STRENGTH_PER_FRAME = 0.145;
 
 const MOUTH_OPEN_RATIO_THRESHOLD = 0.05;
 const MOUTH_OPEN_RATIO_RELEASE = 0.035;
@@ -37,6 +43,21 @@ function dist(a: Landmark, b: Landmark) {
 
 function isPinching(lm: Landmark[]) {
   return dist(lm[4], lm[8]) < PINCH_THRESHOLD;
+}
+
+function isFist(lm: Landmark[]) {
+  const wrist = lm[0];
+  const tipIdx = [8, 12, 16, 20];
+  const mcpIdx = [5, 9, 13, 17];
+
+  let curled = 0;
+  for (let i = 0; i < tipIdx.length; i++) {
+    const tipDist = dist(wrist, lm[tipIdx[i]]);
+    const mcpDist = dist(wrist, lm[mcpIdx[i]]);
+    if (mcpDist <= 0) continue;
+    if (tipDist / mcpDist < FIST_CURL_TIP_TO_MCP_RATIO) curled++;
+  }
+  return curled >= FIST_MIN_CURLED_FINGERS;
 }
 
 function drawMirroredVideo(
@@ -135,45 +156,43 @@ export function useSteamHandTracking(
       for (let i = 0; i < landmarks.length; i++) {
         const lm = landmarks[i];
         const pinching = isPinching(lm);
+        const fist = !pinching && isFist(lm);
 
-        if (!pinching) {
+        if (!pinching && !fist) {
           nextPrevTips[i] = null;
           continue;
         }
 
-        anyPinching = true;
+        if (pinching) anyPinching = true;
 
-        const tip = lm[8];
+        const tip = pinching ? lm[8] : lm[9];
 
         const x = (1 - tip.x) * w;
         const y = tip.y * h;
+
+        const radius = pinching ? WIPE_RADIUS : FIST_WIPE_RADIUS;
+        const strength = pinching ? WIPE_STRENGTH : FIST_WIPE_STRENGTH;
+        const step = pinching ? WIPE_STEP : FIST_WIPE_STEP;
 
         if (maskCtx) {
           const prev = prevTipsRef.current[i];
           const segDist = prev ? Math.hypot(x - prev.x, y - prev.y) : Infinity;
 
           if (prev && segDist <= MAX_INTERP_DIST) {
-            const steps = Math.max(1, Math.ceil(segDist / WIPE_STEP));
+            const steps = Math.max(1, Math.ceil(segDist / step));
             for (let s = 1; s <= steps; s++) {
               const t = s / steps;
               paintFogStamp(
                 maskCtx,
                 prev.x + (x - prev.x) * t,
                 prev.y + (y - prev.y) * t,
-                WIPE_RADIUS,
-                WIPE_STRENGTH,
+                radius,
+                strength,
                 "destination-out",
               );
             }
           } else {
-            paintFogStamp(
-              maskCtx,
-              x,
-              y,
-              WIPE_RADIUS,
-              WIPE_STRENGTH,
-              "destination-out",
-            );
+            paintFogStamp(maskCtx, x, y, radius, strength, "destination-out");
           }
         }
 
