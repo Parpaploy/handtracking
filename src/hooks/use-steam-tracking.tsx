@@ -12,17 +12,19 @@ declare const FaceMesh: FaceMeshConstructorLocal;
 
 const BLUR_PX = 22;
 
-const WIPE_RADIUS = 15;
+const WIPE_RADIUS = 18;
 const WIPE_STRENGTH = 0.75;
 const WIPE_STEP = Math.max(WIPE_RADIUS * 0.4, 4);
 const MAX_INTERP_DIST = 140;
 const PINCH_THRESHOLD = 0.05;
 
-const FIST_WIPE_RADIUS = 48;
 const FIST_WIPE_STRENGTH = 0.85;
-const FIST_WIPE_STEP = Math.max(FIST_WIPE_RADIUS * 0.4, 4);
 const FIST_CURL_TIP_TO_MCP_RATIO = 1.15;
 const FIST_MIN_CURLED_FINGERS = 3;
+
+const FIST_RADIUS_FROM_PALM_FACTOR = 0.9;
+const FIST_RADIUS_MIN = 24;
+const FIST_RADIUS_MAX = 140;
 
 const BREATH_MIN_RADIUS = 55;
 const BREATH_MAX_RADIUS = 200;
@@ -58,6 +60,27 @@ function isFist(lm: Landmark[]) {
     if (tipDist / mcpDist < FIST_CURL_TIP_TO_MCP_RATIO) curled++;
   }
   return curled >= FIST_MIN_CURLED_FINGERS;
+}
+
+function measureFistRadiusPx(lm: Landmark[], w: number, h: number) {
+  const wrist = lm[0];
+  const indexMcp = lm[5];
+  const pinkyMcp = lm[17];
+  const middleMcp = lm[9];
+
+  const toPx = (p: Landmark) => ({ x: p.x * w, y: p.y * h });
+  const wristPx = toPx(wrist);
+  const indexPx = toPx(indexMcp);
+  const pinkyPx = toPx(pinkyMcp);
+  const middlePx = toPx(middleMcp);
+
+  const knuckleSpan = Math.hypot(indexPx.x - pinkyPx.x, indexPx.y - pinkyPx.y);
+  const palmLength = Math.hypot(wristPx.x - middlePx.x, wristPx.y - middlePx.y);
+
+  const palmSize = (knuckleSpan + palmLength) / 2;
+  const radius = palmSize * FIST_RADIUS_FROM_PALM_FACTOR;
+
+  return Math.min(FIST_RADIUS_MAX, Math.max(FIST_RADIUS_MIN, radius));
 }
 
 function drawMirroredVideo(
@@ -170,9 +193,9 @@ export function useSteamHandTracking(
         const x = (1 - tip.x) * w;
         const y = tip.y * h;
 
-        const radius = pinching ? WIPE_RADIUS : FIST_WIPE_RADIUS;
+        const radius = pinching ? WIPE_RADIUS : measureFistRadiusPx(lm, w, h);
         const strength = pinching ? WIPE_STRENGTH : FIST_WIPE_STRENGTH;
-        const step = pinching ? WIPE_STEP : FIST_WIPE_STEP;
+        const step = pinching ? WIPE_STEP : Math.max(radius * 0.4, 4);
 
         if (maskCtx) {
           const prev = prevTipsRef.current[i];
