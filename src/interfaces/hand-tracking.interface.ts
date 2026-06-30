@@ -105,3 +105,31 @@ export interface RunnerOverlayProps {
   width: number;
   height: number;
 }
+
+export interface HandednessInfo {
+  label: "Left" | "Right";
+}
+export interface HandResultsLocal {
+  image: CanvasImageSource;
+  multiHandLandmarks?: Landmark[][];
+  multiHandedness?: HandednessInfo[];
+}
+export interface HandsConstructorLocal {
+  new (config: { locateFile: (file: string) => string }): {
+    setOptions: (opts: Record<string, unknown>) => void;
+    onResults: (cb: (results: HandResultsLocal) => void) => void;
+    send: (input: { image: HTMLVideoElement }) => Promise<void>;
+    close: () => Promise<void>;
+  };
+}
+export interface FaceResultsLocal {
+  multiFaceLandmarks?: Landmark[][];
+}
+export interface FaceMeshConstructorLocal {
+  new (config: { locateFile: (file: string) => string }): {
+    setOptions: (opts: Record<string, unknown>) => void;
+    onResults: (cb: (results: FaceResultsLocal) => void) => void;
+    send: (input: { image: HTMLVideoElement }) => Promise<void>;
+    close: () => Promise<void>;
+  };
+}
