@@ -356,6 +356,53 @@ function GlyphMood() {
   );
 }
 
+function GlyphAvatar() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 56 56" fill="none" aria-hidden>
+      <path
+        d="M28,10 q8,0 8,9 q0,10 -8,13 q-8,-3 -8,-13 q0,-9 8,-9 z"
+        stroke={BONE}
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <circle cx="24.5" cy="21" r="1.5" fill={BONE} />
+      <circle cx="31.5" cy="21" r="1.5" fill={BONE} />
+
+      <path
+        d="M28,32 v9"
+        stroke={BONE}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M19,36 h18"
+        stroke={BONE_FADE}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <polyline
+        points="19,36 13,29 15,21"
+        stroke={ACTIVE}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="37,36 43,30 41,23"
+        stroke={ACTIVE}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="13" cy="29" r="1.8" fill={ACTIVE} />
+      <circle cx="15" cy="21" r="2.4" fill={ACTIVE} />
+      <circle cx="43" cy="30" r="1.8" fill={ACTIVE} />
+      <circle cx="41" cy="23" r="2.4" fill={ACTIVE} />
+    </svg>
+  );
+}
+
 const GAMES = [
   {
     path: "/tracker",
@@ -368,6 +415,12 @@ const GAMES = [
     name: "จับอารมณ์",
     desc: "ทำหน้าต่างๆ ให้กล้องทายอารมณ์",
     glyph: <GlyphMood />,
+  },
+  {
+    path: "/model",
+    name: "หุ่นตามตัว",
+    desc: "ขยับหน้าและแขน ให้หุ่นทำตาม",
+    glyph: <GlyphAvatar />,
   },
   {
     path: "/drawing",

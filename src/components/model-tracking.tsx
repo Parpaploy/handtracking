@@ -5,9 +5,10 @@ import { useControls } from "leva";
 import { useWebcam } from "../hooks/use-webcam";
 import { AvatarFace } from "../components/avatar-face";
 import { useFaceBlendshapes } from "../hooks/use-blendshapes";
+import { usePoseLandmarks } from "../hooks/use-pose";
+import { useHandLandmarks } from "../hooks/use-hands";
 
 const AVATAR_URL = "/models/avatar-v3.glb";
-const IDLE_URL = "/animations/Pudtan/idle.fbx";
 
 export default function ModelTracking() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -15,6 +16,42 @@ export default function ModelTracking() {
 
   const { blendshapes, headRotation, ready, faceFound } =
     useFaceBlendshapes(videoRef);
+
+  const {
+    bodyTracking,
+    fingerTracking,
+    mirror,
+    swapSides,
+    swapHandedness,
+    naturalRest,
+    idleMotion,
+    idleAmount,
+    poseSmoothing,
+    minVisibility,
+  } = useControls("Body Tracking", {
+    bodyTracking: { value: true, label: "เปิดจับร่างกาย" },
+    fingerTracking: { value: true, label: "เปิดจับนิ้ว" },
+    mirror: { value: true, label: "กลับซ้ายขวา (mirror)" },
+    swapSides: { value: true, label: "สลับแขนซ้าย/ขวา" },
+    swapHandedness: { value: false, label: "สลับมือซ้าย/ขวา" },
+    naturalRest: { value: true, label: "ท่าพักแขนลง" },
+    idleMotion: { value: true, label: "โยกเบาๆ ตอนพัก" },
+    idleAmount: { value: 1, min: 0, max: 3, step: 0.05, label: "แรงโยก" },
+    poseSmoothing: { value: 0.35, min: 0.02, max: 1, step: 0.01 },
+    minVisibility: { value: 0.5, min: 0, max: 1, step: 0.05 },
+  });
+
+  const {
+    poseRef,
+    ready: poseReady,
+    poseFound,
+  } = usePoseLandmarks(videoRef, bodyTracking);
+
+  const {
+    handsRef,
+    ready: handsReady,
+    handCount,
+  } = useHandLandmarks(videoRef, fingerTracking);
 
   const { rotX, rotY, rotZ, posX, posY, posZ, scale } = useControls(
     "Avatar Transform",
@@ -36,17 +73,37 @@ export default function ModelTracking() {
     fov: { value: 30, min: 10, max: 90, step: 1 },
   });
 
+  const faceStatus = ready
+    ? faceFound
+      ? "tracking..."
+      : "ไม่พบใบหน้า"
+    : "กำลังโหลดโมเดล...";
+
+  const bodyStatus = !bodyTracking
+    ? "ปิดอยู่"
+    : poseReady
+      ? poseFound
+        ? "tracking..."
+        : "ไม่พบร่างกาย"
+      : "กำลังโหลดโมเดล...";
+
+  const fingerStatus = !fingerTracking
+    ? "ปิดอยู่"
+    : handsReady
+      ? handCount > 0
+        ? `tracking... (${handCount} มือ)`
+        : "ไม่พบมือ"
+      : "กำลังโหลดโมเดล...";
+
   return (
-    <div className="w-full h-screen bg-black flex flex-col">
+    <div
+      className="w-full h-screen bg-cover bg-center bg-no-repeat flex flex-col"
+      style={{ backgroundImage: "url('/chihiro007.jpg')" }}
+    >
       <div className="absolute top-4 left-4 z-10 text-white text-sm space-y-1">
-        <p>
-          สถานะ:{" "}
-          {ready
-            ? faceFound
-              ? "tracking..."
-              : "ไม่พบใบหน้า"
-            : "กำลังโหลดโมเดล..."}
-        </p>
+        <p>ใบหน้า: {faceStatus}</p>
+        <p>ร่างกาย: {bodyStatus}</p>
+        <p>นิ้ว: {fingerStatus}</p>
       </div>
 
       <video
@@ -68,7 +125,20 @@ export default function ModelTracking() {
               blendshapes={blendshapes}
               headRotation={headRotation}
               headBoneName="DEF-spine006"
-              idleUrl={IDLE_URL}
+              poseRef={poseRef}
+              handsRef={handsRef}
+              bodyTracking={bodyTracking}
+              fingerTracking={fingerTracking}
+              poseOptions={{
+                mirror,
+                swapSides,
+                swapHandedness,
+                naturalRest,
+                idleMotion,
+                idleAmount,
+                smoothing: poseSmoothing,
+                minVisibility,
+              }}
               transform={{
                 rotation: [rotX, rotY, rotZ],
                 position: [posX, posY, posZ],

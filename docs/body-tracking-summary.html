@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>สรุปงาน — จับร่างกายและนิ้ว หน้า /model</title>
+<style>
+  :root{
+    --clay:#c15f3c;
+    --clay-deep:#9d4a2d;
+    --paper:#fafaf7;
+    --stone:#b1ada1;
+    --stone-light:#ddd9cf;
+    --ink:#433d35;
+    --ink-soft:#6f695e;
+    --ink-deep:#2b2722;
+    --surface:#ffffff;
+    --sage:#5f7a5f;
+    --code-bg:#f6f4ef;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans Thai","Noto Sans Thai","Leelawadee UI",Tahoma,sans-serif;
+    font-size:16px;
+    line-height:1.85;
+    letter-spacing:.1px;
+  }
+  .wrap{max-width:860px;margin:0 auto;padding:56px 28px 96px}
+
+  header.doc{
+    border-bottom:1px solid var(--stone-light);
+    padding-bottom:28px;margin-bottom:40px;
+  }
+  .eyebrow{
+    font-size:11px;letter-spacing:.28em;color:var(--stone);
+    text-transform:uppercase;margin:0 0 12px;
+  }
+  h1{
+    font-size:31px;line-height:1.4;margin:0 0 14px;
+    font-weight:600;color:var(--ink-deep);
+  }
+  .meta{font-size:13.5px;color:var(--ink-soft);margin:0}
+  .meta code{font-size:12.5px}
+
+  nav.toc{
+    background:var(--surface);
+    border:1px solid var(--stone-light);
+    border-radius:14px;
+    padding:20px 24px;
+    margin:0 0 48px;
+  }
+  nav.toc p{margin:0 0 10px;font-size:11px;letter-spacing:.2em;color:var(--stone);text-transform:uppercase}
+  nav.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+  nav.toc li{font-size:14.5px;margin-bottom:5px;break-inside:avoid}
+  nav.toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid transparent}
+  nav.toc a:hover{color:var(--clay-deep);border-bottom-color:var(--stone-light)}
+
+  section{margin-bottom:52px}
+  h2{
+    font-size:20px;font-weight:600;color:var(--ink-deep);
+    margin:0 0 18px;padding-top:8px;
+    display:flex;align-items:baseline;gap:12px;
+  }
+  h2 .num{
+    font-size:12px;color:var(--clay);letter-spacing:.1em;
+    font-weight:600;flex:none;
+  }
+  h3{
+    font-size:16px;font-weight:600;color:var(--ink);
+    margin:32px 0 12px;
+  }
+  h4{font-size:14.5px;font-weight:600;color:var(--ink-soft);margin:22px 0 8px}
+  p{margin:0 0 14px}
+
+  code{
+    font-family:"Cascadia Mono","Consolas",ui-monospace,monospace;
+    font-size:13px;background:var(--code-bg);
+    padding:1.5px 6px;border-radius:5px;color:var(--ink-deep);
+    letter-spacing:0;
+  }
+  pre{
+    background:var(--code-bg);
+    border-left:3px solid var(--clay);
+    border-radius:0 10px 10px 0;
+    padding:16px 20px;margin:0 0 18px;
+    overflow-x:auto;line-height:1.65;
+  }
+  pre code{background:none;padding:0;font-size:12.5px;white-space:pre}
+
+  table{
+    width:100%;border-collapse:collapse;margin:0 0 20px;
+    font-size:14.5px;
+  }
+  th{
+    text-align:left;font-weight:600;color:var(--ink-soft);
+    font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    padding:9px 14px;border-bottom:1.5px solid var(--stone-light);
+  }
+  td{padding:11px 14px;border-bottom:1px solid #ececE6;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td code{font-size:12.5px}
+  .num-cell{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .callout{
+    background:var(--surface);
+    border:1px solid var(--stone-light);
+    border-radius:14px;padding:20px 24px;margin:0 0 20px;
+  }
+  .callout.warn{border-left:3px solid var(--clay)}
+  .callout p:last-child{margin-bottom:0}
+  .callout .label{
+    font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--clay-deep);font-weight:600;display:block;margin-bottom:8px;
+  }
+
+  .pass{color:var(--sage);font-weight:600}
+  .fail{color:var(--clay-deep);font-weight:600}
+  .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .dot.ok{background:var(--sage)}
+  .dot.no{background:var(--clay)}
+
+  ul{margin:0 0 16px;padding-left:22px}
+  li{margin-bottom:7px}
+  strong{font-weight:600;color:var(--ink-deep)}
+  hr{border:none;border-top:1px solid var(--stone-light);margin:44px 0}
+
+  .kicker{
+    font-size:14.5px;color:var(--ink-soft);
+    background:var(--code-bg);border-radius:12px;
+    padding:14px 20px;margin:0 0 24px;
+  }
+
+  footer.doc{
+    border-top:1px solid var(--stone-light);
+    padding-top:24px;margin-top:8px;
+    font-size:13.5px;color:var(--ink-soft);
+  }
+
+  @media print{
+    body{background:#fff}
+    .wrap{padding:0;max-width:none}
+    nav.toc{break-inside:avoid}
+    section{break-inside:auto}
+    h2{break-after:avoid}
+  }
+  @media (max-width:640px){
+    .wrap{padding:36px 18px 64px}
+    h1{font-size:25px}
+    nav.toc ol{columns:1}
+    table{font-size:13.5px}
+    td,th{padding:9px 8px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <p class="eyebrow">สรุปงาน · handtracking</p>
+  <h1>จับร่างกายและนิ้ว — หน้า <code>/model</code></h1>
+  <p class="meta">
+    13 สิงหาคม 2569 · <code>D:\Folder Project\handtracking\handtracking</code><br>
+    โจทย์: หน้าขยับตามได้ แต่ตัวไม่ขยับ
+  </p>
+</header>
+
+<nav class="toc">
+  <p>สารบัญ</p>
+  <ol>
+    <li><a href="#s1">ปัญหาเดิม 3 ชั้น</a></li>
+    <li><a href="#s2">ของที่สร้างใหม่</a></li>
+    <li><a href="#s3">บั๊กที่เจอระหว่างทาง</a></li>
+    <li><a href="#s4">ของที่ลบทิ้ง</a></li>
+    <li><a href="#s5">ไฟล์ที่แตะ</a></li>
+    <li><a href="#s6">ตรวจอะไรไปแล้ว</a></li>
+    <li><a href="#s7">ยังไม่ได้ตรวจ</a></li>
+    <li><a href="#s8">ข้อจำกัด</a></li>
+    <li><a href="#s9">ของที่แตะนอกโปรเจกต์</a></li>
+  </ol>
+</nav>
+
+<!-- 1 -->
+<section id="s1">
+  <h2><span class="num">01</span> ปัญหาเดิม 3 ชั้น</h2>
+
+  <h3>ชั้น 1 — ไม่มีโค้ดจับร่างกายอยู่เลย</h3>
+  <p>หน้า <code>/model</code> เรียกตัวจับใบหน้าอย่างเดียว ทั้งโปรเจกต์ไม่มีคำว่า pose หรือ holistic เลยสักบรรทัด คอมเมนต์ในโค้ดเขียนบอกไว้เอง</p>
+<pre><code>avatar-face.tsx:288  (ตัด body tracking ออกทั้งหมดตามที่ขอ)
+avatar-face.tsx:581  แขน/มือ/นิ้ว ขับด้วย idle animation อย่างเดียว ไม่มี body tracking แล้ว</code></pre>
+  <div class="callout warn">
+    <span class="label">หลักฐานชัดสุด</span>
+    <p>คอมมิตเดียวกัน (<code>f127472</code>) เอาไฟล์โมเดล <code>pose_landmarker_lite.task</code> (5.7 เมกะไบต์) กับ <code>hand_landmarker.task</code> (7.8 เมกะไบต์) เข้ามาด้วย <strong>แต่ไม่มีโค้ดบรรทัดไหนเรียกใช้</strong> — โหลดของมาแล้วแต่ไม่ได้เขียนโค้ดต่อ</p>
+  </div>
+
+  <h3>ชั้น 2 — ตัวสำรอง (ท่ายืนเฉยๆ) ก็ไม่ทำงาน ด้วย 2 เหตุผลคนละเรื่อง</h3>
+
+  <h4>2ก. หากระดูกไม่เจอสักชิ้น</h4>
+  <p>three.js ตัดจุดออกจากชื่อกระดูกของไฟล์ glTF (ยืนยันที่ <code>three.core.js:52184</code> — <code>_RESERVED_CHARS_RE = '\[\]\.:\/'</code>) กระดูก <code>DEF-upper_arm.L</code> เลยกลายเป็น <code>DEF-upper_armL</code> ตอนถึงมือโค้ด แต่รูปแบบค้นหาเดิมบังคับว่าต้องมีจุดหรือขีดล่างคั่นหน้าตัว L</p>
+<pre><code>new RegExp(`(${kw}).*[._]l(\\.\\d+)?$`, "i")   // รอ ".L" หรือ "_l" ซึ่งไม่เหลือแล้ว</code></pre>
+  <p>ทั้ง 4 รูปแบบพลาดหมด หาได้ศูนย์ชิ้น เด้งออกก่อนถึงขั้นตอนถัดไป</p>
+  <p>จุดที่ฟ้องว่าคนเขียนรู้เรื่องนี้แล้วแต่แก้ไม่ครบ — <code>model-tracking.tsx</code> ส่งชื่อกระดูกหัวเป็น <code>DEF-spine006</code> ไม่มีจุด ทั้งที่ชื่อจริงคือ <code>DEF-spine.006</code> แปลว่าไปอ่านชื่อที่ถูกตัดจุดมาจากคอนโซล แก้ให้หัวสำเร็จ แล้วลืมแขน</p>
+
+  <h4>2ข. ไฟล์ท่าทางไม่ใช่ Mixamo</h4>
+  <p>โค้ดเดิมรอชื่อกระดูกขึ้นต้นว่า <code>mixamorig</code> แกะไฟล์ <code>idle.fbx</code> ออกมาดู เป็นโครงกระดูกแบบ Unreal / Auto-Rig-Pro ส่งออกจาก Blender</p>
+<pre><code>upperarm_l  lowerarm_l  hand_l  thumb_01_l  index_01_l  pinky_01_l  clavicle_l  spine_01</code></pre>
+  <p>ในไฟล์ไม่มีคำว่า <code>mixamorig</code> แม้แต่ตัวเดียว จับคู่ไม่ติดสักเส้น ไม่มีตัวเล่นท่า แขนค้างท่าตั้งต้นตลอดกาล</p>
+
+  <h3>ชั้น 3 — ต่อให้แก้สองข้อบนก็ยังออกมาเพี้ยน</h3>
+  <p>โครงกระดูกต้นทาง (Unreal/ARP) กับปลายทาง (Rigify) วางแกนท่าตั้งต้นคนละแบบ โค้ดเดิมคัดลอกค่าการหมุนดิบข้ามโครง ซึ่งเป็นวิธีที่ทำให้ตัวละครบิดเป็นเกลียว</p>
+</section>
+
+<hr>
+
+<!-- 2 -->
+<section id="s2">
+  <h2><span class="num">02</span> ของที่สร้างใหม่</h2>
+
+  <h3><code>src/lib/pose-rig.ts</code> — หัวใจทั้งหมด</h3>
+
+  <h4>ตัวหากระดูก</h4>
+  <ul>
+    <li>รองรับชื่อที่ถูกตัดจุดไปแล้ว</li>
+    <li>กันไม่ให้ไปจับกระดูกควบคุม (<code>MCH-</code> <code>ORG-</code> <code>VIS-</code> <code>_fk</code> <code>_ik</code> <code>_tweak</code> <code>_master</code>) เพราะ <strong>glTF ทิ้งเงื่อนไขผูกกระดูกของ Rigify ไปหมด</strong> พวกตัวควบคุมหมุนไปก็ไม่มีอะไรขยับ หนังเกาะอยู่กับสาย <code>DEF-</code> เท่านั้น</li>
+    <li>เจอหลายตัวเลือกชื่อสั้นสุด ได้ <code>DEF-upper_armL</code> ไม่ใช่ <code>DEF-upper_armL001</code> ซึ่งเป็นข้อบิด</li>
+  </ul>
+
+  <h4>ตัวแก้ท่า — ไม่คัดลอกการหมุน แต่ใช้วิธีเล็ง</h4>
+  <p>หลักการ: เอาทิศตั้งต้นของกระดูกแต่ละชิ้น หมุนไปทับทิศที่มันควรชี้ คำนวณในพิกัดของตัวโมเดล แล้วแปลงกลับเป็นพิกัดท้องถิ่นผ่านการหมุนของกระดูกแม่</p>
+  <p>ข้อดี — <strong>ไม่ต้องรู้ว่าโครงกระดูกวางแกนแบบไหน</strong> ใช้ได้กับทุกโครง ไม่มีเลขวิเศษให้เดา</p>
+  <p><strong>ไม่ใช้ kalidokit</strong> ทั้งที่ติดตั้งอยู่ในโปรเจกต์แล้ว เพราะผลลัพธ์เป็นระบบพิกัดแบบ VRM แต่โครงนี้เป็น Rigify ใช้ไปต้องนั่งสู้กับแกนที่ไม่ตรงกันไม่จบ</p>
+
+  <h3><code>src/hooks/use-pose.tsx</code> — แขน</h3>
+  <p>ตัวจับร่างกาย เก็บจุดอ้างอิงไว้ในตัวแปรอ้างอิงตรงๆ ไม่ใช่สถานะของหน้าจอ เพราะมันยิงทุกเฟรม ถ้าใช้สถานะจะสั่งวาดหน้าจอใหม่ 60 ครั้งต่อวินาทีเปล่าๆ กรองด้วยค่าความชัดเจน ออกนอกเฟรมแล้วแขนคลายกลับท่าตั้งต้น</p>
+
+  <h3><code>src/hooks/use-hands.tsx</code> — นิ้ว</h3>
+  <p>ตัวจับมือ 2 ข้าง ขับกระดูก 30 ชิ้น (5 นิ้ว × 3 ข้อ × 2 ข้าง) บวกข้อมืออีก 2 ชิ้น</p>
+  <p><strong>ข้อมือ</strong> เดิมไม่ได้ขับเลย ปล่อยตามท่อนแขน ตอนนี้เล็งจากข้อมือไปหาโคนนิ้วชี้ ให้ตรงกับทิศตั้งต้นของ <code>ORG-palm.01</code></p>
+
+  <div class="callout warn">
+    <span class="label">ปัญหาที่ต้องแก้จริงจัง</span>
+    <p><strong>ข้อปลายนิ้วไม่มีกระดูกลูก</strong> เลยไม่มีอะไรให้เล็ง แทนที่จะเดาแกนมั่ว ให้มันยืมแกนจากข้อก่อนหน้าแล้วคำนวณผ่านท่าตั้งต้นของตัวเอง แม่นยำถ้าโปรแกรมส่งออกวางแกนแบบเดียวกันทั้งโครง ซึ่ง Blender ทำแบบนั้น</p>
+  </div>
+
+  <p>เช็กก่อนใช้ว่าท่าตั้งต้นนิ้วตรงพอไหม วัดมุมเบี่ยงระหว่างข้อที่ 1 กับข้อที่ 2</p>
+  <table>
+    <thead><tr><th>นิ้ว</th><th class="num-cell">มุมเบี่ยง</th><th>อ่านผล</th></tr></thead>
+    <tbody>
+      <tr><td>กลาง</td><td class="num-cell">0.1°</td><td>ตรงมาก</td></tr>
+      <tr><td>นาง</td><td class="num-cell">0.5°</td><td>ตรงมาก</td></tr>
+      <tr><td>ชี้</td><td class="num-cell">6.8°</td><td>ใช้ได้</td></tr>
+      <tr><td>ก้อย</td><td class="num-cell">7.9°</td><td>ใช้ได้</td></tr>
+      <tr><td>โป้ง</td><td class="num-cell">22.4°</td><td>เบี้ยวสุด นิ้วโป้งคนโค้งอยู่แล้ว</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>ลำดับการแก้ท่า</strong> ต้องพ่อก่อนลูกเสมอ — แขนบน → แขนล่าง → ข้อมือ → ข้อนิ้วที่ 1 → 2 → 3 และแต่ละชิ้นอัปเดตเฉพาะกิ่งตัวเอง ไม่ใช่ทั้งโครง 583 ชิ้นทุกรอบ</p>
+</section>
+
+<hr>
+
+<!-- 3 -->
+<section id="s3">
+  <h2><span class="num">03</span> บั๊กที่เจอระหว่างทาง (ไม่ได้อยู่ในโจทย์)</h2>
+  <p>ตอนรันทดสอบเจอข้อความนี้ยิงรัวไม่หยุด</p>
+<pre><code>Packet timestamp mismatch on ... "norm_rect".
+Current minimum expected timestamp is 21504200 but received 21504199</code></pre>
+  <p><code>performance.now()</code> แกว่งต่ำกว่าหนึ่งมิลลิวินาที ตัวจับแปลงเป็นไมโครวินาทีแล้วได้ค่าที่<strong>ต่ำลง</strong> ซึ่งห้ามเด็ดขาด โดนครั้งเดียวกราฟพังถาวร ฟื้นไม่ได้ ต้องรีเฟรชหน้าอย่างเดียว</p>
+  <p>แก้โดยส่งเลขมิลลิวินาทีเต็ม ที่เพิ่มขึ้นอย่างเดียวเท่านั้น</p>
+  <p>แล้วเจอต่อว่า <strong><code>use-blendshapes.tsx</code> (ตัวจับใบหน้า) มีบั๊กเดียวกันเป๊ะ</strong> พิสูจน์ด้วยการแยกทดสอบ แก้แค่ฝั่งร่างกายก่อนแล้ววัดผล</p>
+  <table>
+    <thead><tr><th></th><th class="num-cell">ก่อนแก้</th><th class="num-cell">แก้แค่ฝั่งร่างกาย</th><th class="num-cell">แก้ทั้งคู่</th></tr></thead>
+    <tbody>
+      <tr><td>ข้อผิดพลาดฝั่งร่างกาย</td><td class="num-cell">ยิงรัว</td><td class="num-cell pass">0</td><td class="num-cell pass">0</td></tr>
+      <tr><td>ข้อผิดพลาดฝั่งใบหน้า</td><td class="num-cell">—</td><td class="num-cell fail">3</td><td class="num-cell pass">0</td></tr>
+    </tbody>
+  </table>
+  <p>แปลว่าฝั่งใบหน้าเป็นระเบิดเวลาที่รออยู่ วันไหนโดนเข้าหน้าจะหยุดจับแล้วไม่กลับมาจนกว่าจะรีเฟรช ตอนนี้แก้แล้วทั้งคู่</p>
+</section>
+
+<hr>
+
+<!-- 4 -->
+<section id="s4">
+  <h2><span class="num">04</span> ของที่ลบทิ้ง</h2>
+  <table>
+    <thead><tr><th>ของ</th><th>เหตุผล</th></tr></thead>
+    <tbody>
+      <tr><td>270 บรรทัดโค้ดคอมเมนต์ใน <code>avatar-face.tsx</code></td><td>ซากโค้ดเก่า 2 เวอร์ชันทับกัน</td></tr>
+      <tr><td><code>useLoader(FBXLoader, "/animations/__none__.fbx")</code></td><td>ไฟล์ไม่มีอยู่จริง โหลดเปล่าๆ เพื่อกันลำดับเรียกใช้เพี้ยน</td></tr>
+      <tr><td><code>src/hooks/use-model-tracking.tsx</code></td><td>ไฟล์ซ้ำกับหน้าจริง ไม่มีใครเรียก</td></tr>
+      <tr><td><code>src/hooks/use-idle-animation.ts</code></td><td>ตายแล้ว บวกกับสมมติว่าเป็น Mixamo ซึ่งผิด</td></tr>
+      <tr><td>ข้อความดีบักที่พ่นชื่อกระดูกทุกชิ้นลงคอนโซล</td><td>รก</td></tr>
+    </tbody>
+  </table>
+  <p>ทั้งหมดเอากลับมาได้จากประวัติ git</p>
+  <p><strong>เพิ่ม</strong> — <code>/model</code> เข้าเมนูหน้าแรกแล้ว ชื่อ “หุ่นตามตัว” พร้อมไอคอนที่วาดให้เข้ากับใบอื่น เดิมเข้าได้ทางพิมพ์ที่อยู่เว็บเท่านั้น</p>
+</section>
+
+<hr>
+
+<!-- 5 -->
+<section id="s5">
+  <h2><span class="num">05</span> ไฟล์ที่แตะทั้งหมด</h2>
+  <table>
+    <thead><tr><th>ไฟล์</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/lib/pose-rig.ts</code></td><td><strong>ใหม่</strong> หากระดูก + แก้ท่า ทั้งแขนและนิ้ว</td></tr>
+      <tr><td><code>src/hooks/use-pose.tsx</code></td><td><strong>ใหม่</strong> จับร่างกาย</td></tr>
+      <tr><td><code>src/hooks/use-hands.tsx</code></td><td><strong>ใหม่</strong> จับมือและนิ้ว</td></tr>
+      <tr><td><code>src/components/avatar-face.tsx</code></td><td>ตัดซากทิ้ง ต่อตัวแก้ท่าเข้าไป (ลบสุทธิ 493 บรรทัด)</td></tr>
+      <tr><td><code>src/components/model-tracking.tsx</code></td><td>ต่อตัวจับ 2 ตัวใหม่ เพิ่มแผงปรับค่า แยกสถานะ 3 บรรทัด</td></tr>
+      <tr><td><code>src/hooks/use-blendshapes.tsx</code></td><td>แก้บั๊กเวลาประทับ</td></tr>
+      <tr><td><code>src/menu.tsx</code></td><td>เพิ่มใบ “หุ่นตามตัว” + ไอคอน</td></tr>
+      <tr><td><code>src/hooks/use-model-tracking.tsx</code></td><td><strong>ลบ</strong></td></tr>
+      <tr><td><code>src/hooks/use-idle-animation.ts</code></td><td><strong>ลบ</strong></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<hr>
+
+<!-- 6 -->
+<section id="s6">
+  <h2><span class="num">06</span> ตรวจอะไรไปแล้วบ้าง</h2>
+  <table>
+    <thead><tr><th>รายการ</th><th>ผล</th></tr></thead>
+    <tbody>
+      <tr><td>ตรวจชนิดข้อมูล</td><td><span class="dot ok"></span><span class="pass">ผ่าน</span> ไม่มีข้อผิดพลาด</td></tr>
+      <tr><td>ตรวจสไตล์โค้ดทั้ง <code>src/</code></td><td><span class="dot ok"></span><span class="pass">ผ่าน</span> ไม่มีข้อผิดพลาด</td></tr>
+      <tr><td>สร้างไฟล์สำหรับใช้งานจริง</td><td><span class="dot ok"></span><span class="pass">ผ่าน</span></td></tr>
+      <tr><td>รันบนเบราว์เซอร์แบบไม่มีหน้าจอ</td><td><span class="dot ok"></span>ข้อผิดพลาดเวลาประทับ 0 · ตัวจับล้มเหลว 0 · ข้อผิดพลาดหลุด 0</td></tr>
+      <tr><td>ผูกกระดูก</td><td><span class="dot ok"></span><strong>ครบ 36 ชิ้น</strong> เป็น <code>DEF-</code> ทุกตัว ทั้งสองข้าง</td></tr>
+    </tbody>
+  </table>
+  <p class="kicker">ของเดิมหาได้ <strong>ศูนย์ชิ้น</strong></p>
+</section>
+
+<hr>
+
+<!-- 7 -->
+<section id="s7">
+  <h2><span class="num">07</span> ยังไม่ได้ตรวจ — อ่านก่อนตัดสิน</h2>
+  <div class="callout warn">
+    <span class="label">ข้อจำกัดของการทดสอบ</span>
+    <p><strong>ไม่มีคนจริงยืนหน้ากล้อง</strong> เบราว์เซอร์แบบไม่มีหน้าจอให้ภาพทดสอบสีเขียวมา พิสูจน์ได้แค่ว่าท่อทั้งหมดไม่พังและกระดูกผูกครบ <strong>ไม่ได้พิสูจน์ว่าท่าทางออกมาถูก</strong></p>
+  </div>
+  <p>ที่ยังเป็นการเดา — สวิตช์ 3 ตัวนี้ ต้องยืนหน้ากล้องแล้วบอกอาการ</p>
+  <table>
+    <thead><tr><th>อาการ</th><th>สลับตัวไหน</th></tr></thead>
+    <tbody>
+      <tr><td>แขนไขว้ / กลับด้าน</td><td>สลับแขนซ้าย/ขวา</td></tr>
+      <tr><td>ขยับขวาแต่หุ่นขยับซ้าย</td><td>กลับซ้ายขวา</td></tr>
+      <tr><td>แขนถูกแต่นิ้วไปโผล่ผิดมือ</td><td>สลับมือซ้าย/ขวา</td></tr>
+      <tr><td>หน่วง</td><td>เพิ่ม <code>poseSmoothing</code></td></tr>
+      <tr><td>สั่น</td><td>ลด <code>poseSmoothing</code></td></tr>
+      <tr><td>แขนหลุดตอนขยับเร็ว</td><td>ลด <code>minVisibility</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<hr>
+
+<!-- 8 -->
+<section id="s8">
+  <h2><span class="num">08</span> ข้อจำกัดที่ต้องรู้</h2>
+  <ul>
+    <li><strong>ไม่จับการบิด</strong> หมุนข้อมือแล้วท่อนแขนหุ่นไม่หมุนตาม วิธีเล็งจับได้แต่ทิศ ไม่จับการหมุนรอบแกนตัวเอง เป็นข้อจำกัดที่ตั้งใจ ไม่ใช่บั๊ก</li>
+    <li><strong>ตอนนี้มีตัวจับ 3 ตัวรันพร้อมกัน</strong> (หน้า + ร่างกาย + มือ) บนกล้องตัวเดียว นี่คือจุดที่จะหนัก ถ้าอืดให้ปิดนิ้วก่อน ทางแก้ที่ถูกต้องคือเปลี่ยนไปใช้ <code>HolisticLandmarker</code> ที่รวม 3 อย่างในกราฟเดียว แต่ต้องโหลดไฟล์โมเดลใหม่เข้ามา เลยยังไม่ทำเพราะไม่ได้สั่ง</li>
+    <li><strong>นิ้วโป้งจะเพี้ยนที่สุด</strong> ตามเหตุผลมุม 22.4° ข้างบน บวกกับความลึกของนิ้วโป้งที่ตัวจับอ่านได้แม่นน้อยอยู่แล้ว</li>
+  </ul>
+</section>
+
+<hr>
+
+<!-- 9 -->
+<section id="s9">
+  <h2><span class="num">09</span> ของที่แตะนอกโปรเจกต์</h2>
+  <ul>
+    <li>ติดตั้ง <code>@rolldown/binding-win32-x64-msvc</code> แบบไม่บันทึกลงไฟล์รายการ เพราะ <code>node_modules</code> ที่ติดมากับไฟล์บีบอัดเป็นของเครื่อง Mac มีแต่ตัวของ darwin ทำให้รันไม่ได้เลยบนเครื่องนี้</li>
+    <li>การติดตั้งนั้นพลอยอัป TypeScript จาก 6.0.2 เป็น 6.0.3 ซึ่ง<strong>แก้ข้อผิดพลาด <code>erasableSyntaxOnly</code> ที่ทำให้ <code>npm run build</code> พังมาตั้งแต่คอมมิตแรก</strong> ไม่ใช่ของใหม่ที่ทำพัง มันพังมาก่อนแล้ว</li>
+  </ul>
+</section>
+
+<footer class="doc">
+  <p>เซิร์ฟเวอร์รันอยู่ที่ <code>http://localhost:5173/model</code> · ยังรอฟีดแบ็กว่าแขนกับนิ้วออกมาเป็นยังไงตอนยืนหน้ากล้องจริง</p>
+</footer>
+
+</div>
+</body>
+</html>
