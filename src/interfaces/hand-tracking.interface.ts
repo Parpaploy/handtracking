@@ -165,3 +165,11 @@ export interface TrackedObject {
   missedFrames: number;
   smoothedBbox: [number, number, number, number];
 }
+
+export interface InternalTrackedObject extends TrackedObject {
+  velocity: [number, number, number, number];
+  hits: number;
+  confirmed: boolean;
+  classVotes: Record<string, number>;
+  smoothedScore: number;
+}

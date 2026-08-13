@@ -9,7 +9,7 @@ import type {
   CocoSsdModel,
   DetectedObject,
   TfNamespace,
-  TrackedObject,
+  InternalTrackedObject,
 } from "../interfaces/hand-tracking.interface";
 
 declare const Hands: HandsConstructor;
@@ -290,9 +290,14 @@ function drawFace(
 }
 
 const IOU_MATCH_THRESHOLD = 0.3;
-const MAX_MISSED_FRAMES = 5;
-const SMOOTHING_FACTOR = 0.35;
+const MAX_MISSED_FRAMES = 8;
 const MIN_CONFIDENCE = 0.45;
+const CONFIRMATION_HITS = 3;
+const NMS_IOU_THRESHOLD = 0.6;
+const VELOCITY_EMA = 0.5;
+const SCORE_EMA = 0.3;
+const BASE_SMOOTHING = 0.35;
+const NEW_TRACK_SMOOTHING = 0.7;
 
 const OBJECT_COLORS = [
   "#FF6B6B",
@@ -343,52 +348,150 @@ function lerpBbox(
   ];
 }
 
+function predictBbox(
+  t: InternalTrackedObject,
+  framesAhead = 1,
+): [number, number, number, number] {
+  const [x, y, w, h] = t.smoothedBbox;
+  const [vx, vy, vw, vh] = t.velocity;
+  return [
+    x + vx * framesAhead,
+    y + vy * framesAhead,
+    Math.max(1, w + vw * framesAhead),
+    Math.max(1, h + vh * framesAhead),
+  ];
+}
+
+function nonMaxSuppress(
+  detections: DetectedObject[],
+  iouThreshold: number,
+): DetectedObject[] {
+  const sorted = [...detections].sort((a, b) => b.score - a.score);
+  const kept: DetectedObject[] = [];
+  for (const det of sorted) {
+    let overlaps = false;
+    for (const k of kept) {
+      if (computeIOU(det.bbox, k.bbox) > iouThreshold) {
+        overlaps = true;
+        break;
+      }
+    }
+    if (!overlaps) kept.push(det);
+  }
+  return kept;
+}
+
+function majorityClass(votes: Record<string, number>): string {
+  let best = "";
+  let bestCount = -1;
+  for (const [cls, count] of Object.entries(votes)) {
+    if (count > bestCount) {
+      bestCount = count;
+      best = cls;
+    }
+  }
+  return best;
+}
+
 function createTrackedObjectFactory() {
   let nextTrackId = 0;
 
   return function updateTrackedObjects(
-    tracked: TrackedObject[],
+    tracked: InternalTrackedObject[],
     detections: DetectedObject[],
-  ): TrackedObject[] {
-    const filtered = detections.filter((d) => d.score >= MIN_CONFIDENCE);
-    const usedDetectionIdx = new Set<number>();
-    const updated: TrackedObject[] = [];
+  ): InternalTrackedObject[] {
+    const confident = detections.filter((d) => d.score >= MIN_CONFIDENCE);
+    const filtered = nonMaxSuppress(confident, NMS_IOU_THRESHOLD);
 
-    for (const t of tracked) {
-      let bestIdx = -1;
-      let bestIOU = 0;
-      for (let i = 0; i < filtered.length; i++) {
-        if (usedDetectionIdx.has(i)) continue;
-        if (filtered[i].class !== t.class) continue;
-        const iou = computeIOU(t.bbox, filtered[i].bbox);
-        if (iou > bestIOU) {
-          bestIOU = iou;
-          bestIdx = i;
+    type Candidate = { trackIdx: number; detIdx: number; iou: number };
+    const candidates: Candidate[] = [];
+
+    for (let ti = 0; ti < tracked.length; ti++) {
+      const predicted = predictBbox(tracked[ti]);
+      for (let di = 0; di < filtered.length; di++) {
+        const iou = computeIOU(predicted, filtered[di].bbox);
+        if (iou >= IOU_MATCH_THRESHOLD) {
+          candidates.push({ trackIdx: ti, detIdx: di, iou });
         }
       }
+    }
 
-      if (bestIdx !== -1 && bestIOU >= IOU_MATCH_THRESHOLD) {
-        const det = filtered[bestIdx];
-        usedDetectionIdx.add(bestIdx);
+    // Greedy global assignment: strongest matches win first. This is a cheap
+    // approximation of the Hungarian algorithm that works well for the small
+    // number of simultaneous objects a webcam scene typically has.
+    candidates.sort((a, b) => b.iou - a.iou);
+
+    const matchedTrack = new Set<number>();
+    const matchedDet = new Set<number>();
+    const trackToDet = new Map<number, number>();
+
+    for (const c of candidates) {
+      if (matchedTrack.has(c.trackIdx) || matchedDet.has(c.detIdx)) continue;
+      matchedTrack.add(c.trackIdx);
+      matchedDet.add(c.detIdx);
+      trackToDet.set(c.trackIdx, c.detIdx);
+    }
+
+    const updated: InternalTrackedObject[] = [];
+
+    for (let ti = 0; ti < tracked.length; ti++) {
+      const t = tracked[ti];
+      const detIdx = trackToDet.get(ti);
+
+      if (detIdx !== undefined) {
+        const det = filtered[detIdx];
+        const [px, py, pw, ph] = t.smoothedBbox;
+        const [dx, dy, dw, dh] = det.bbox;
+        const frameDelta: [number, number, number, number] = [
+          dx - px,
+          dy - py,
+          dw - pw,
+          dh - ph,
+        ];
+        const velocity: [number, number, number, number] = [
+          t.velocity[0] * (1 - VELOCITY_EMA) + frameDelta[0] * VELOCITY_EMA,
+          t.velocity[1] * (1 - VELOCITY_EMA) + frameDelta[1] * VELOCITY_EMA,
+          t.velocity[2] * (1 - VELOCITY_EMA) + frameDelta[2] * VELOCITY_EMA,
+          t.velocity[3] * (1 - VELOCITY_EMA) + frameDelta[3] * VELOCITY_EMA,
+        ];
+
+        const hits = t.hits + 1;
+        const smoothing =
+          hits < CONFIRMATION_HITS ? NEW_TRACK_SMOOTHING : BASE_SMOOTHING;
+        const classVotes = {
+          ...t.classVotes,
+          [det.class]: (t.classVotes[det.class] ?? 0) + 1,
+        };
+        const smoothedScore =
+          t.smoothedScore * (1 - SCORE_EMA) + det.score * SCORE_EMA;
+
         updated.push({
           id: t.id,
           bbox: det.bbox,
-          class: det.class,
-          score: det.score,
+          class: majorityClass(classVotes),
+          score: smoothedScore,
           missedFrames: 0,
-          smoothedBbox: lerpBbox(t.smoothedBbox, det.bbox, SMOOTHING_FACTOR),
+          smoothedBbox: lerpBbox(t.smoothedBbox, det.bbox, smoothing),
+          velocity,
+          hits,
+          confirmed: t.confirmed || hits >= CONFIRMATION_HITS,
+          classVotes,
+          smoothedScore,
         });
       } else if (t.missedFrames < MAX_MISSED_FRAMES) {
+        // No detection matched this frame — glide the box forward using its
+        // last known velocity instead of freezing it in place.
         updated.push({
           ...t,
           missedFrames: t.missedFrames + 1,
+          smoothedBbox: predictBbox(t),
         });
       }
     }
 
-    for (let i = 0; i < filtered.length; i++) {
-      if (usedDetectionIdx.has(i)) continue;
-      const det = filtered[i];
+    for (let di = 0; di < filtered.length; di++) {
+      if (matchedDet.has(di)) continue;
+      const det = filtered[di];
       updated.push({
         id: nextTrackId++,
         bbox: det.bbox,
@@ -396,6 +499,11 @@ function createTrackedObjectFactory() {
         score: det.score,
         missedFrames: 0,
         smoothedBbox: det.bbox,
+        velocity: [0, 0, 0, 0],
+        hits: 1,
+        confirmed: false,
+        classVotes: { [det.class]: 1 },
+        smoothedScore: det.score,
       });
     }
 
@@ -405,10 +513,12 @@ function createTrackedObjectFactory() {
 
 function drawObjects(
   ctx: CanvasRenderingContext2D,
-  objects: TrackedObject[],
+  objects: InternalTrackedObject[],
   w: number,
 ) {
   for (const obj of objects) {
+    if (!obj.confirmed) continue;
+
     const alpha =
       obj.missedFrames === 0
         ? 1
@@ -424,7 +534,7 @@ function drawObjects(
     ctx.lineWidth = 2;
     ctx.strokeRect(mirroredX, y, bw, bh);
 
-    const label = `${obj.class} ${Math.round(obj.score * 100)}%`;
+    const label = `${obj.class} ${Math.round(obj.smoothedScore * 100)}%`;
     ctx.font = "14px sans-serif";
     const textWidth = ctx.measureText(label).width;
 
@@ -458,7 +568,7 @@ export function useTracking(
 
     let latestHandLandmarks: Landmark[][] = [];
     let latestFaceLandmarks: Landmark[][] = [];
-    let latestObjects: TrackedObject[] = [];
+    let latestObjects: InternalTrackedObject[] = [];
     let objectModel: CocoSsdModel | null = null;
     const updateTrackedObjects = createTrackedObjectFactory();
 
@@ -545,7 +655,8 @@ export function useTracking(
           if (cancelled) return;
           latestObjects = updateTrackedObjects(latestObjects, predictions);
           setObjectCount(
-            latestObjects.filter((o) => o.missedFrames === 0).length,
+            latestObjects.filter((o) => o.confirmed && o.missedFrames === 0)
+              .length,
           );
         } catch (err) {
           console.error(err);
