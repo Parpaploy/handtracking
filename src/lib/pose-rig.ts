@@ -62,8 +62,13 @@ function opposite(side: Side): Side {
 /* fingers; we never drive them, we just inherit through them.         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Bones that must never be picked up by the arm/finger patterns. PHYS is in
+ * here because this rig carries 167 skinned physics bones (hair, skirt, cape,
+ * hat) that spring-bones.ts owns — nothing in the retarget may touch them.
+ */
 const CONTROL_RE =
-  /^(MCH|ORG|VIS|WGT)[-_]|_(fk|ik|tweak|master|drv|parent|widget|pole|target|swing)/i;
+  /^(MCH|ORG|VIS|WGT)[-_]|PHYS|_(fk|ik|tweak|master|drv|parent|widget|pole|target|swing)/i;
 
 /** Rigify spells fingers "f_index"; thumb has no prefix. */
 const FINGER_CORE: Record<Finger, string> = {
@@ -225,6 +230,12 @@ export interface RigBinding {
    * snap straight out sideways. These aim the arms down at the sides instead.
    */
   restAim: Map<BoneKey, THREE.Vector3>;
+  /**
+   * Per-bone roll reference, in model space: the direction the bone's own
+   * "bend axis" points to in the bind pose. Pairing this with a measured
+   * bend axis per frame is what pins the roll — see aimWithRoll.
+   */
+  restRoll: Map<BoneKey, THREE.Vector3>;
   /** Model-space axis pointing toward the avatar's left, measured from the rig. */
   lateral: THREE.Vector3;
   /** Model-space axis pointing out of the avatar's chest. */
@@ -322,7 +333,38 @@ export function bindRig(root: THREE.Object3D): RigBinding {
     if (info) rest.set(key, info);
   }
 
-  return { root, bones, rest, ...buildRestAim(rest) };
+  const aim = buildRestAim(rest);
+  return { root, bones, rest, ...aim, restRoll: buildRestRoll(rest, aim.forward) };
+}
+
+/**
+ * The bind-pose bend axis of every bone we roll-stabilise.
+ *
+ * For an arm in a T-pose the elbow bends *forward*, so the hinge axis is
+ * perpendicular to both the bone and the chest normal — that is exactly
+ * `restDir x forward`. The sign works out on its own for both sides, because
+ * restDir already points the opposite way on the right arm.
+ */
+function buildRestRoll(
+  rest: Map<BoneKey, RestInfo>,
+  forward: THREE.Vector3,
+): Map<BoneKey, THREE.Vector3> {
+  const restRoll = new Map<BoneKey, THREE.Vector3>();
+
+  for (const side of SIDES) {
+    for (const part of ["UpperArm", "LowerArm", "Hand"] as const) {
+      const info = rest.get(`${side}${part}`);
+      if (!info) continue;
+      const roll = new THREE.Vector3().crossVectors(info.restDir, forward);
+      // Degenerate only if the bone lies along the chest normal, which no arm
+      // bone in a T-pose does. Skipping is correct: no roll reference means
+      // aimWithRoll falls back to the old swing-only behaviour for that bone.
+      if (roll.lengthSq() < 1e-10) continue;
+      restRoll.set(`${side}${part}`, roll.normalize());
+    }
+  }
+
+  return restRoll;
 }
 
 /**
@@ -449,8 +491,35 @@ export interface PoseSolveOptions {
    * label needs inverting. Same convention the 2D hand games in this repo use.
    */
   swapHandedness: boolean;
-  /** Slerp factor per frame, 0..1. Lower = smoother, laggier. */
-  smoothing: number;
+  /**
+   * How fast a bone converges on its target, in units of 1/second.
+   *
+   * This used to be a raw per-frame slerp factor, which made the whole rig
+   * behave differently at 30 fps than at 90 — and this page runs three
+   * MediaPipe models on one video, so the frame rate is anything but steady.
+   * It is now a time constant: t = 1 - exp(-responsiveness * dt).
+   */
+  responsiveness: number;
+  /**
+   * Scales the depth component of every tracked direction, 0..1.
+   *
+   * A single webcam cannot actually see depth; MediaPipe infers it, and that
+   * inference is by far the noisiest channel it emits. Damping it trades a
+   * little forward reach for a lot less wobble.
+   */
+  zDamp: number;
+  /**
+   * Pin each arm bone's roll to the plane the arm is actually bending in,
+   * instead of letting the aim solver invent one. Off restores the old
+   * swing-only behaviour.
+   */
+  rollStabilize: boolean;
+  /**
+   * Flip the palm-normal roll reference for the wrists. Which sign is correct
+   * depends on how the rig's bind pose holds its palms, and this rig is not
+   * self-describing about it — same toggle-and-look deal as mirror/swapSides.
+   */
+  flipPalm: boolean;
   /** Landmarks below this visibility are ignored and the limb relaxes. */
   minVisibility: number;
   /**
@@ -468,7 +537,10 @@ export const DEFAULT_POSE_OPTIONS: PoseSolveOptions = {
   mirror: true,
   swapSides: true,
   swapHandedness: true,
-  smoothing: 0.35,
+  responsiveness: 25,
+  zDamp: 0.8,
+  rollStabilize: true,
+  flipPalm: false,
   minVisibility: 0.5,
   naturalRest: true,
   idleMotion: true,
@@ -488,10 +560,71 @@ export interface HandFrame {
 
 const _target = new THREE.Quaternion();
 const _delta = new THREE.Quaternion();
+const _twist = new THREE.Quaternion();
 const _parentQuat = new THREE.Quaternion();
 const _rootQuatInv = new THREE.Quaternion();
 const _dirA = new THREE.Vector3();
 const _tmpPos = new THREE.Vector3();
+const _rollA = new THREE.Vector3();
+const _rollB = new THREE.Vector3();
+const _rollTarget = new THREE.Vector3();
+const _bendAxis = new THREE.Vector3();
+const _palmA = new THREE.Vector3();
+const _palmB = new THREE.Vector3();
+const _palmNormal = new THREE.Vector3();
+
+/**
+ * Frame-rate independent slerp factor. See PoseSolveOptions.responsiveness.
+ */
+function convergence(responsiveness: number, dt: number): number {
+  return THREE.MathUtils.clamp(
+    1 - Math.exp(-Math.max(responsiveness, 0.01) * dt),
+    0.01,
+    1,
+  );
+}
+
+/**
+ * Aim `restDir` onto `dir`, then roll about `dir` so `restRoll` lands on
+ * `targetRoll`.
+ *
+ * setFromUnitVectors on its own gives the *minimal* rotation between two
+ * directions, which leaves rotation about the bone's own axis completely
+ * undetermined — three.js has to invent a perpendicular, and near the
+ * 180-degree case that invented axis swings wildly from frame to frame. That
+ * is the spinning. It is also why the elbow crease and the palm ended up
+ * facing arbitrary directions: the bone was pointing the right way the whole
+ * time, the roll around it was noise.
+ *
+ * Fixing it needs a second reference direction. For the arms that is the
+ * plane the arm is bending in — shoulder, elbow and wrist define it, and its
+ * normal is the elbow's hinge axis by construction.
+ */
+function aimWithRoll(
+  restDir: THREE.Vector3,
+  dir: THREE.Vector3,
+  restRoll: THREE.Vector3 | undefined,
+  targetRoll: THREE.Vector3 | null,
+  out: THREE.Quaternion,
+): THREE.Quaternion {
+  out.setFromUnitVectors(restDir, dir);
+  if (!restRoll || !targetRoll) return out;
+
+  // Both references, flattened into the plane perpendicular to the bone —
+  // only their angle about the bone matters, and either one may be tilted.
+  _rollA.copy(restRoll).applyQuaternion(out);
+  _rollA.addScaledVector(dir, -_rollA.dot(dir));
+  _rollB.copy(targetRoll);
+  _rollB.addScaledVector(dir, -_rollB.dot(dir));
+
+  // Degenerate when a reference is parallel to the bone, i.e. a perfectly
+  // straight arm has no bend plane. Leaving the swing alone is right: with no
+  // measurable roll, the previous frame's is the best guess available.
+  if (_rollA.lengthSq() < 1e-8 || _rollB.lengthSq() < 1e-8) return out;
+
+  _twist.setFromUnitVectors(_rollA.normalize(), _rollB.normalize());
+  return out.premultiply(_twist);
+}
 
 /**
  * MediaPipe world landmarks are metres with +x image-right, +y down, +z away
@@ -502,12 +635,16 @@ const _tmpPos = new THREE.Vector3();
 function toThreeDir(
   from: Landmark,
   to: Landmark,
-  mirror: boolean,
+  opts: PoseSolveOptions,
   out: THREE.Vector3,
 ): THREE.Vector3 {
-  const sx = mirror ? -1 : 1;
+  const sx = opts.mirror ? -1 : 1;
   return out
-    .set(sx * (to.x - from.x), -(to.y - from.y), -(to.z - from.z))
+    .set(
+      sx * (to.x - from.x),
+      -(to.y - from.y),
+      -(to.z - from.z) * opts.zDamp,
+    )
     .normalize();
 }
 
@@ -533,6 +670,12 @@ function solveBone(
   opts: PoseSolveOptions,
   t: number,
   time: number,
+  /**
+   * Measured bend axis for this bone, in camera space, or null to leave the
+   * roll unconstrained. Ignored while the bone is relaxing — a rest pose has
+   * no measured plane, and its own bind roll is the right answer there.
+   */
+  roll: THREE.Vector3 | null = null,
 ): void {
   const info = binding.rest.get(key);
   if (!info) return;
@@ -546,10 +689,17 @@ function solveBone(
     return;
   }
 
+  let rollTarget: THREE.Vector3 | null = null;
+
   if (tracked) {
     // Camera-space target -> model space, so a rotated avatar still tracks
     // relative to the camera rather than to its own body.
     _dirA.copy(dir!).applyQuaternion(_rootQuatInv).normalize();
+    if (opts.rollStabilize && roll) {
+      rollTarget = _rollTarget.copy(roll).applyQuaternion(_rootQuatInv);
+      if (rollTarget.lengthSq() < 1e-10) rollTarget = null;
+      else rollTarget.normalize();
+    }
   } else if (opts.idleMotion) {
     // Rest directions are authored in model space already.
     applyIdleSway(binding, key, restDir!, time, opts.idleAmount, _dirA);
@@ -557,7 +707,13 @@ function solveBone(
     _dirA.copy(restDir!).normalize();
   }
 
-  _delta.setFromUnitVectors(info.restDir, _dirA);
+  aimWithRoll(
+    info.restDir,
+    _dirA,
+    binding.restRoll.get(key),
+    rollTarget,
+    _delta,
+  );
   _target.copy(_delta).multiply(info.restQuat);
 
   const parent = info.bone.parent;
@@ -586,9 +742,10 @@ export function applyPoseToRig(
   frame: PoseFrame | null,
   opts: PoseSolveOptions,
   time: number,
+  dt: number,
 ): void {
   if (binding.rest.size === 0) return;
-  const t = THREE.MathUtils.clamp(opts.smoothing, 0.01, 1);
+  const t = convergence(opts.responsiveness, dt);
 
   beginSolve(binding);
 
@@ -617,15 +774,25 @@ export function applyPoseToRig(
       visibilityOf(frame, si) >= opts.minVisibility &&
       visibilityOf(frame, ei) >= opts.minVisibility
     ) {
-      upperDir = toThreeDir(shoulder, elbow, opts.mirror, new THREE.Vector3());
+      upperDir = toThreeDir(shoulder, elbow, opts, new THREE.Vector3());
 
       if (wrist && visibilityOf(frame, wi) >= opts.minVisibility) {
-        lowerDir = toThreeDir(elbow, wrist, opts.mirror, new THREE.Vector3());
+        lowerDir = toThreeDir(elbow, wrist, opts, new THREE.Vector3());
       }
     }
 
-    solveBone(binding, `${avatarSide}UpperArm`, upperDir, opts, t, time);
-    solveBone(binding, `${avatarSide}LowerArm`, lowerDir, opts, t, time);
+    // The elbow's hinge axis: normal of the plane through shoulder, elbow and
+    // wrist. Both bones get the same one, which is what keeps the upper arm
+    // and forearm from twisting independently of each other. A dead-straight
+    // arm makes this vanish, and aimWithRoll correctly ignores it there.
+    let bend: THREE.Vector3 | null = null;
+    if (upperDir && lowerDir) {
+      _bendAxis.crossVectors(upperDir, lowerDir);
+      if (_bendAxis.lengthSq() > 1e-6) bend = _bendAxis.normalize();
+    }
+
+    solveBone(binding, `${avatarSide}UpperArm`, upperDir, opts, t, time, bend);
+    solveBone(binding, `${avatarSide}LowerArm`, lowerDir, opts, t, time, bend);
   }
 }
 
@@ -638,9 +805,10 @@ export function applyHandsToRig(
   frames: HandFrame[] | null,
   opts: PoseSolveOptions,
   time: number,
+  dt: number,
 ): void {
   if (binding.rest.size === 0) return;
-  const t = THREE.MathUtils.clamp(opts.smoothing, 0.01, 1);
+  const t = convergence(opts.responsiveness, dt);
 
   beginSolve(binding);
 
@@ -673,15 +841,32 @@ export function applyHandsToRig(
     // so aim it wrist -> index MCP to match its rest direction.
     const wrist = lm[HAND_IDX.Wrist];
     const indexMcp = lm[HAND_IDX.Index[0]];
+    const pinkyMcp = lm[HAND_IDX.Pinky[0]];
+
+    // Palm normal, from the triangle the wrist and the two outer knuckles
+    // make. Without it the wrist keeps its direction but rolls freely, which
+    // is what made an otherwise correct hand read as broken.
+    let palm: THREE.Vector3 | null = null;
+    if (wrist && indexMcp && pinkyMcp) {
+      toThreeDir(wrist, indexMcp, opts, _palmA);
+      toThreeDir(wrist, pinkyMcp, opts, _palmB);
+      _palmNormal.crossVectors(_palmA, _palmB);
+      if (_palmNormal.lengthSq() > 1e-8) {
+        palm = _palmNormal.normalize();
+        if (opts.flipPalm) palm.negate();
+      }
+    }
+
     solveBone(
       binding,
       `${avatarSide}Hand`,
       wrist && indexMcp
-        ? toThreeDir(wrist, indexMcp, opts.mirror, new THREE.Vector3())
+        ? toThreeDir(wrist, indexMcp, opts, new THREE.Vector3())
         : null,
       opts,
       t,
       time,
+      palm,
     );
 
     for (const finger of FINGERS) {
@@ -689,10 +874,13 @@ export function applyHandsToRig(
       for (let s = 0; s < SEGMENTS.length; s++) {
         const from = lm[joints[s]];
         const to = lm[joints[s + 1]];
+        // Fingers stay swing-only on purpose: a phalanx is short enough that
+        // its own roll is invisible, and it now inherits a wrist whose roll
+        // is pinned, which was the actual source of the mess.
         solveBone(
           binding,
           `${avatarSide}${finger}${SEGMENTS[s]}`,
-          from && to ? toThreeDir(from, to, opts.mirror, _dir) : null,
+          from && to ? toThreeDir(from, to, opts, _dir) : null,
           opts,
           t,
           time,

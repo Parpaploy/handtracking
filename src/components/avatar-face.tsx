@@ -15,6 +15,14 @@ import {
   type PoseSolveOptions,
   type RigBinding,
 } from "../lib/pose-rig";
+import {
+  bindSpringBones,
+  updateSpringBones,
+  springBoneStats,
+  DEFAULT_SPRING_OPTIONS,
+  type SpringOptions,
+  type SpringRig,
+} from "../lib/spring-bones";
 
 const NAME_OVERRIDES: Record<string, string> = {};
 
@@ -43,21 +51,31 @@ function toModelMorphName(
 
 export function AvatarFace({
   modelUrl,
-  blendshapes,
-  headRotation,
-  smoothing = 0.35,
+  blendshapesRef,
+  headRotationRef,
+  faceResponsiveness = 26,
+  headResponsiveness = 18,
   headBoneName,
   transform,
   poseRef,
   handsRef,
   poseOptions = DEFAULT_POSE_OPTIONS,
+  springOptions = DEFAULT_SPRING_OPTIONS,
   bodyTracking = true,
   fingerTracking = true,
 }: {
   modelUrl: string;
-  blendshapes: BlendshapeMap;
-  headRotation: HeadRotation;
-  smoothing?: number;
+  /** Live FaceLandmarker output; see useFaceBlendshapes. */
+  blendshapesRef: React.RefObject<BlendshapeMap>;
+  headRotationRef: React.RefObject<HeadRotation>;
+  /**
+   * Convergence rates in 1/second, not per-frame factors — see
+   * PoseSolveOptions.responsiveness for why that distinction matters here.
+   * Blendshapes run faster than the head on purpose: a blink lasts about
+   * 100 ms and heavy smoothing eats it, while a smoothed head is just calm.
+   */
+  faceResponsiveness?: number;
+  headResponsiveness?: number;
   /**
    * Exact node name of the head bone. Remember three.js strips dots from
    * glTF node names, so Blender's "DEF-spine.006" is "DEF-spine006" here.
@@ -73,6 +91,8 @@ export function AvatarFace({
   /** Live HandLandmarker output; see useHandLandmarks. */
   handsRef?: React.RefObject<HandFrame[] | null>;
   poseOptions?: PoseSolveOptions;
+  /** Hair / skirt / cape physics; see lib/spring-bones.ts. */
+  springOptions?: SpringOptions;
   bodyTracking?: boolean;
   fingerTracking?: boolean;
 }) {
@@ -94,6 +114,7 @@ export function AvatarFace({
   const smoothedOffset = useRef({ x: 0, y: 0, z: 0 });
 
   const rigRef = useRef<RigBinding | null>(null);
+  const springRef = useRef<SpringRig | null>(null);
 
   useEffect(() => {
     const meshes: THREE.Mesh[] = [];
@@ -154,10 +175,40 @@ export function AvatarFace({
         ),
       );
     }
+
+    // Same contract as bindRig: the PHYS chains must be captured before
+    // anything has posed them, so this belongs right here and nowhere later.
+    const springs = bindSpringBones(gltf.scene);
+    springRef.current = springs;
+
+    if (springs.chains.length === 0) {
+      console.warn(
+        "[AvatarFace] ไม่พบ bone ฟิสิกส์ (PHYS) — ผม/กระโปรง/ผ้าคลุมจะไม่ไหว",
+      );
+    } else {
+      console.log(
+        "[AvatarFace] ผูก spring bone สำเร็จ:",
+        springs.chains.length,
+        "chain,",
+        springBoneStats(springs),
+        `colliders=${springs.colliders.length}`,
+      );
+    }
   }, [gltf, headBoneName]);
 
   /* eslint-disable react-hooks/immutability */
-  useFrame((state) => {
+  useFrame((state, delta) => {
+    // A backgrounded tab resumes with a delta of several seconds. Clamping
+    // here keeps every downstream integrator honest in one place.
+    const dt = Math.min(Math.max(delta, 1 / 240), 1 / 10);
+
+    // Both of these were fixed per-frame factors, so the face animated at a
+    // different speed on every machine. Same time-constant form as the rig.
+    const faceT = 1 - Math.exp(-faceResponsiveness * dt);
+    const headT = 1 - Math.exp(-headResponsiveness * dt);
+
+    const blendshapes = blendshapesRef.current;
+
     for (const mesh of meshesRef.current) {
       const dict = mesh.morphTargetDictionary!;
       const influences = mesh.morphTargetInfluences!;
@@ -169,7 +220,7 @@ export function AvatarFace({
 
         const key = `${mesh.uuid}:${idx}`;
         const prev = currentInfluences.current.get(key) ?? 0;
-        const next = prev + (targetValue - prev) * smoothing;
+        const next = prev + (targetValue - prev) * faceT;
         currentInfluences.current.set(key, next);
         influences[idx] = next;
       }
@@ -178,10 +229,14 @@ export function AvatarFace({
     const bone = headBoneRef.current;
     if (bone) {
       const off = smoothedOffset.current;
+      const headRotation = headRotationRef.current;
 
-      off.x += (headRotation.x - off.x) * smoothing;
-      off.y += (headRotation.y - off.y) * smoothing;
-      off.z += (headRotation.z - off.z) * smoothing;
+      // No negation here on purpose: useFaceBlendshapes already flips yaw and
+      // roll when its mirror option is on. Negating a second time turns the
+      // head the wrong way.
+      off.x += (headRotation.x - off.x) * headT;
+      off.y += (headRotation.y - off.y) * headT;
+      off.z += (headRotation.z - off.z) * headT;
 
       bone.rotation.set(
         baseHeadEuler.current.x + off.x,
@@ -200,14 +255,22 @@ export function AvatarFace({
         bodyTracking ? (poseRef?.current ?? null) : null,
         poseOptions,
         time,
+        dt,
       );
       applyHandsToRig(
         rig,
         fingerTracking ? (handsRef?.current ?? null) : null,
         poseOptions,
         time,
+        dt,
       );
     }
+
+    // Springs last. They read where the head and spine actually ended up this
+    // frame; running them any earlier means the hair chases a stale head and
+    // permanently lags one frame behind the face tracking.
+    const springs = springRef.current;
+    if (springs) updateSpringBones(springs, dt, springOptions);
   });
   /* eslint-enable react-hooks/immutability */
 

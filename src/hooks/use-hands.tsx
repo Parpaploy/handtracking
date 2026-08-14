@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 import type { HandFrame, Side } from "../lib/pose-rig";
+import {
+  createLandmarkFilter,
+  filterLandmarks,
+  resetLandmarkFilter,
+  DEFAULT_ONE_EURO,
+  type LandmarkFilter,
+  type OneEuroParams,
+} from "../lib/one-euro";
 
 const WASM_PATH = "/mediapipe/tasks-vision/wasm";
 const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
@@ -15,10 +23,14 @@ const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
 export function useHandLandmarks(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled = true,
+  filterParams: OneEuroParams = DEFAULT_ONE_EURO,
 ) {
   const handsRef = useRef<HandFrame[] | null>(null);
   const [ready, setReady] = useState(false);
   const [handCount, setHandCount] = useState(0);
+
+  const paramsRef = useRef(filterParams);
+  paramsRef.current = filterParams;
 
   useEffect(() => {
     if (!enabled) {
@@ -36,6 +48,10 @@ export function useHandLandmarks(
     // sub-millisecond wobble in performance.now() permanently poisons the
     // graph. Whole milliseconds that can only go up.
     let lastTimestamp = 0;
+    // One filter per hand, keyed by handedness rather than by array position:
+    // MediaPipe does not promise a stable order, and filtering the left hand
+    // against the right hand's history produces a spectacular lunge.
+    const filters = new Map<Side, LandmarkFilter>();
 
     const init = async () => {
       const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
@@ -76,6 +92,10 @@ export function useHandLandmarks(
             lastTimestamp + 1,
             Math.round(performance.now()),
           );
+          const dt = Math.min(
+            Math.max((timestamp - lastTimestamp) / 1000, 1 / 240),
+            1 / 5,
+          );
           lastTimestamp = timestamp;
 
           const result = landmarker.detectForVideo(video, timestamp);
@@ -83,13 +103,33 @@ export function useHandLandmarks(
           const frames: HandFrame[] = [];
           const worlds = result.worldLandmarks ?? [];
           const handedness = result.handedness ?? [];
+          const seen = new Set<Side>();
 
           for (let i = 0; i < worlds.length; i++) {
             const world = worlds[i];
             const label = handedness[i]?.[0]?.categoryName;
             if (!world || world.length === 0) continue;
             if (label !== "Left" && label !== "Right") continue;
-            frames.push({ world, label: label as Side });
+
+            const side = label as Side;
+            seen.add(side);
+
+            let filter = filters.get(side);
+            if (!filter) {
+              filter = createLandmarkFilter();
+              filters.set(side, filter);
+            }
+
+            frames.push({
+              world: filterLandmarks(filter, world, dt, paramsRef.current),
+              label: side,
+            });
+          }
+
+          // A hand that left the frame must not be smoothed against where it
+          // was when it comes back — that reads as the hand flying in.
+          for (const [side, filter] of filters) {
+            if (!seen.has(side)) resetLandmarkFilter(filter);
           }
 
           handsRef.current = frames.length > 0 ? frames : null;

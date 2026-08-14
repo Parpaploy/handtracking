@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import type { PoseFrame } from "../lib/pose-rig";
+import {
+  createLandmarkFilter,
+  filterLandmarks,
+  resetLandmarkFilter,
+  DEFAULT_ONE_EURO,
+  type OneEuroParams,
+} from "../lib/one-euro";
 
 const WASM_PATH = "/mediapipe/tasks-vision/wasm";
 const MODEL_PATH = "/mediapipe/pose_landmarker/pose_landmarker_lite.task";
@@ -15,10 +22,16 @@ const MODEL_PATH = "/mediapipe/pose_landmarker/pose_landmarker_lite.task";
 export function usePoseLandmarks(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled = true,
+  filterParams: OneEuroParams = DEFAULT_ONE_EURO,
 ) {
   const poseRef = useRef<PoseFrame | null>(null);
   const [ready, setReady] = useState(false);
   const [poseFound, setPoseFound] = useState(false);
+
+  // Read inside the detect loop rather than captured, so dragging the leva
+  // sliders retunes the filter without tearing down the landmarker.
+  const paramsRef = useRef(filterParams);
+  paramsRef.current = filterParams;
 
   useEffect(() => {
     if (!enabled) {
@@ -37,6 +50,10 @@ export function usePoseLandmarks(
     // graph permanently ("Packet timestamp mismatch on ... norm_rect").
     // Feed it whole milliseconds that can only ever go up.
     let lastTimestamp = 0;
+    // MediaPipe's depth estimate is its noisiest channel by a wide margin, and
+    // a swing-only retarget turns that noise straight into a shaking arm. See
+    // lib/one-euro.ts for why a plain exponential smooth cannot fix it.
+    const filter = createLandmarkFilter();
 
     const init = async () => {
       const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
@@ -77,6 +94,10 @@ export function usePoseLandmarks(
             lastTimestamp + 1,
             Math.round(performance.now()),
           );
+          const dt = Math.min(
+            Math.max((timestamp - lastTimestamp) / 1000, 1 / 240),
+            1 / 5,
+          );
           lastTimestamp = timestamp;
 
           const result = landmarker.detectForVideo(video, timestamp);
@@ -84,13 +105,20 @@ export function usePoseLandmarks(
           const view = result.landmarks?.[0];
 
           if (world && view && world.length > 0) {
-            poseRef.current = { world, view };
+            poseRef.current = {
+              world: filterLandmarks(filter, world, dt, paramsRef.current),
+              view,
+            };
             if (!lastFound) {
               lastFound = true;
               setPoseFound(true);
             }
           } else {
             poseRef.current = null;
+            // Forget the old position: smoothing the re-acquire against a
+            // stale one makes the arm visibly slide in from where the body
+            // used to be.
+            resetLandmarkFilter(filter);
             if (lastFound) {
               lastFound = false;
               setPoseFound(false);
