@@ -109,25 +109,32 @@ function armCandidates(side: Side, part: "upper" | "lower" | "hand"): RegExp[] {
   ];
 }
 
-function fingerCandidates(
-  side: Side,
-  finger: Finger,
-  seg: Segment,
-): RegExp[] {
+/**
+ * Unity Humanoid / VRM spell finger joints as words, not numbers:
+ * "IndexProximal", "IndexIntermediate", "IndexDistal" (thumb the same,
+ * no separate "metacarpal" bone). Side is appended directly, no separator
+ * ("IndexProximalL"), matching how VRoid/Ryumii-style exports come out.
+ */
+const SEGMENT_WORD: Record<Segment, string> = {
+  "1": "Proximal",
+  "2": "Intermediate",
+  "3": "Distal",
+};
+
+function fingerCandidates(side: Side, finger: Finger, seg: Segment): RegExp[] {
   const s = side === "Left" ? "l" : "r";
   const long = side.toLowerCase();
   const core = FINGER_CORE[finger];
-  // Rigify writes "DEF-f_index.01.L" -> "DEF-f_index01L" once sanitized.
   const rigify = `(f[_-]?)?${core}[._]?0?${seg}`;
 
   return [
     new RegExp(`^DEF[-_]${rigify}[._]?${s}\\d*$`, "i"),
     new RegExp(`^${rigify}[._]?${s}\\d*$`, "i"),
     new RegExp(`${rigify}[._]?${s}\\d*$`, "i"),
-    // Mixamo: mixamorigLeftHandIndex1 / thumb is "Thumb"
     new RegExp(`^(mixamorig)?${long}hand${core}${seg}$`, "i"),
-    // Unreal / Auto-Rig-Pro: index_01_l
     new RegExp(`^${core}[_-]0?${seg}[_-]${s}$`, "i"),
+    // Unity Humanoid / VRM: IndexProximalL, ThumbDistalR, ...
+    new RegExp(`^${core}${SEGMENT_WORD[seg]}${s}$`, "i"),
   ];
 }
 
@@ -334,7 +341,13 @@ export function bindRig(root: THREE.Object3D): RigBinding {
   }
 
   const aim = buildRestAim(rest);
-  return { root, bones, rest, ...aim, restRoll: buildRestRoll(rest, aim.forward) };
+  return {
+    root,
+    bones,
+    rest,
+    ...aim,
+    restRoll: buildRestRoll(rest, aim.forward),
+  };
 }
 
 /**
@@ -407,12 +420,18 @@ function buildRestAim(rest: Map<BoneKey, RestInfo>): {
     // Upper arm hangs down, tucked out a little so it clears the ribcage.
     restAim.set(
       `${side}UpperArm`,
-      down.clone().addScaledVector(lateral, 0.18 * sign).normalize(),
+      down
+        .clone()
+        .addScaledVector(lateral, 0.18 * sign)
+        .normalize(),
     );
     // Forearm slightly less splayed, which reads as relaxed rather than rigid.
     restAim.set(
       `${side}LowerArm`,
-      down.clone().addScaledVector(lateral, 0.08 * sign).normalize(),
+      down
+        .clone()
+        .addScaledVector(lateral, 0.08 * sign)
+        .normalize(),
     );
   }
 
@@ -462,7 +481,10 @@ function applyIdleSway(
   const sign = isLeft ? 1 : -1;
 
   out
-    .addScaledVector(binding.lateral, sway * IDLE_SWAY_AMP * amount * gain * sign)
+    .addScaledVector(
+      binding.lateral,
+      sway * IDLE_SWAY_AMP * amount * gain * sign,
+    )
     .addScaledVector(binding.forward, bob * IDLE_BOB_AMP * amount * gain)
     .normalize();
 
@@ -640,11 +662,7 @@ function toThreeDir(
 ): THREE.Vector3 {
   const sx = opts.mirror ? -1 : 1;
   return out
-    .set(
-      sx * (to.x - from.x),
-      -(to.y - from.y),
-      -(to.z - from.z) * opts.zDamp,
-    )
+    .set(sx * (to.x - from.x), -(to.y - from.y), -(to.z - from.z) * opts.zDamp)
     .normalize();
 }
 
@@ -829,7 +847,14 @@ export function applyHandsToRig(
       solveBone(binding, `${avatarSide}Hand`, null, opts, t, time);
       for (const finger of FINGERS) {
         for (const seg of SEGMENTS) {
-          solveBone(binding, `${avatarSide}${finger}${seg}`, null, opts, t, time);
+          solveBone(
+            binding,
+            `${avatarSide}${finger}${seg}`,
+            null,
+            opts,
+            t,
+            time,
+          );
         }
       }
       continue;

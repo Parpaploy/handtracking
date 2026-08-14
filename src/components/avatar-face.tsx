@@ -24,8 +24,6 @@ import {
   type SpringRig,
 } from "../lib/spring-bones";
 
-const NAME_OVERRIDES: Record<string, string> = {};
-
 const BASIS_TRANSCODER_PATH = "/basis/";
 
 /**
@@ -33,11 +31,18 @@ const BASIS_TRANSCODER_PATH = "/basis/";
  * avatar-v3.glb ships those verbatim, so the exact-match branch normally
  * wins; the _L/_R rewrite is a fallback for models exported with Blender's
  * side suffix convention instead.
+ *
+ * `overrides` lets a specific model remap an ARKit name to whatever its
+ * own morph target is actually called (e.g. VRM-style "Fcl_EYE_Close_L").
+ * Checked first, before the exact match / _L/_R fallback.
  */
 function toModelMorphName(
   mediapipeName: string,
   dict: Record<string, number>,
+  overrides: Record<string, string>,
 ): string {
+  if (overrides[mediapipeName] !== undefined) return overrides[mediapipeName];
+
   if (dict[mediapipeName] !== undefined) return mediapipeName;
 
   if (mediapipeName.endsWith("Left")) {
@@ -56,6 +61,7 @@ export function AvatarFace({
   faceResponsiveness = 26,
   headResponsiveness = 18,
   headBoneName,
+  morphOverrides,
   transform,
   poseRef,
   handsRef,
@@ -81,6 +87,13 @@ export function AvatarFace({
    * glTF node names, so Blender's "DEF-spine.006" is "DEF-spine006" here.
    */
   headBoneName?: string;
+  /**
+   * Per-model ARKit-name -> actual-morph-target-name map. Use this when a
+   * model's blendshapes weren't exported with ARKit names (e.g. VRM/VRoid
+   * models use names like "Fcl_EYE_Close_L" instead of "eyeBlinkLeft").
+   * Checked before the generic _L/_R fallback in toModelMorphName.
+   */
+  morphOverrides?: Record<string, string>;
   transform?: {
     rotation?: [number, number, number];
     position?: [number, number, number];
@@ -116,6 +129,15 @@ export function AvatarFace({
   const rigRef = useRef<RigBinding | null>(null);
   const springRef = useRef<SpringRig | null>(null);
 
+  // Keep the latest overrides in a ref so useFrame doesn't need it as a
+  // dependency and doesn't go stale if the object identity changes.
+  const morphOverridesRef = useRef<Record<string, string>>(
+    morphOverrides ?? {},
+  );
+  useEffect(() => {
+    morphOverridesRef.current = morphOverrides ?? {};
+  }, [morphOverrides]);
+
   useEffect(() => {
     const meshes: THREE.Mesh[] = [];
     let foundBone: THREE.Object3D | null = null;
@@ -124,7 +146,38 @@ export function AvatarFace({
       const mesh = obj as THREE.Mesh;
       if (mesh.morphTargetDictionary && mesh.morphTargetInfluences) {
         meshes.push(mesh);
+        console.log(
+          `[AvatarFace] morph targets ใน "${mesh.name || "(no name)"}":`,
+          JSON.stringify(Object.keys(mesh.morphTargetDictionary)),
+        );
+        // เพิ่มบรรทัดนี้ — เก็บไว้ที่ window เพื่อ copy() แบบเต็มจาก console ได้
+        (window as any).__morphDicts ??= {};
+        (window as any).__morphDicts[mesh.name] = Object.keys(
+          mesh.morphTargetDictionary,
+        );
       }
+
+      if ((obj as THREE.Mesh).isMesh) {
+        const mat = (obj as THREE.Mesh).material as THREE.MeshStandardMaterial;
+        console.log(`[AvatarFace] material "${obj.name}":`, {
+          metalness: mat.metalness,
+          roughness: mat.roughness,
+          envMapIntensity: mat.envMapIntensity,
+          mapColorSpace: mat.map?.colorSpace,
+          emissive: mat.emissive?.getHexString(),
+          emissiveIntensity: mat.emissiveIntensity,
+        });
+      }
+
+      // debug: ดูชื่อ bone ทั้งหมด โดยเฉพาะโซนมือ/นิ้ว
+      // const boneNames: string[] = [];
+      // gltf.scene.traverse((obj) => {
+      //   if ((obj as THREE.Bone).isBone) boneNames.push(obj.name);
+      // });
+      // console.log(
+      //   "[AvatarFace] bone names ทั้งหมด:",
+      //   JSON.stringify(boneNames),
+      // );
 
       if (!obj.name) return;
 
@@ -208,13 +261,14 @@ export function AvatarFace({
     const headT = 1 - Math.exp(-headResponsiveness * dt);
 
     const blendshapes = blendshapesRef.current;
+    const overrides = morphOverridesRef.current;
 
     for (const mesh of meshesRef.current) {
       const dict = mesh.morphTargetDictionary!;
       const influences = mesh.morphTargetInfluences!;
 
       for (const [name, targetValue] of Object.entries(blendshapes)) {
-        const morphName = NAME_OVERRIDES[name] ?? toModelMorphName(name, dict);
+        const morphName = toModelMorphName(name, dict, overrides);
         const idx = dict[morphName];
         if (idx === undefined) continue;
 
