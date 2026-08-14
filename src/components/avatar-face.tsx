@@ -20,8 +20,10 @@ import {
   updateSpringBones,
   springBoneStats,
   DEFAULT_SPRING_OPTIONS,
+  PHYS_MATCHER,
   type SpringOptions,
   type SpringRig,
+  type BoneMatcher,
 } from "../lib/spring-bones";
 
 const BASIS_TRANSCODER_PATH = "/basis/";
@@ -67,6 +69,7 @@ export function AvatarFace({
   handsRef,
   poseOptions = DEFAULT_POSE_OPTIONS,
   springOptions = DEFAULT_SPRING_OPTIONS,
+  springBoneMatcher = PHYS_MATCHER,
   bodyTracking = true,
   fingerTracking = true,
 }: {
@@ -106,6 +109,14 @@ export function AvatarFace({
   poseOptions?: PoseSolveOptions;
   /** Hair / skirt / cape physics; see lib/spring-bones.ts. */
   springOptions?: SpringOptions;
+  /**
+   * How to recognize this model's physics bones. Defaults to Avatar V3's
+   * "PHYS"-prefix convention (PHYS_MATCHER). Models that don't tag physics
+   * bones that way (e.g. Ryumii 3D) need a different matcher passed in, or
+   * bindSpringBones finds zero chains and physics does nothing — see the
+   * "not every rig names its physics bones PHYS" note in spring-bones.ts.
+   */
+  springBoneMatcher?: BoneMatcher;
   bodyTracking?: boolean;
   fingerTracking?: boolean;
 }) {
@@ -138,6 +149,16 @@ export function AvatarFace({
     morphOverridesRef.current = morphOverrides ?? {};
   }, [morphOverrides]);
 
+  // Same idea for the spring bone matcher — AvatarFace remounts on model
+  // switch (see the `key={modelUrl}` on the tracking page) so this ref only
+  // ever needs to reflect the matcher this particular mount was given, but
+  // keeping it in a ref avoids re-running the bind effect if the parent ever
+  // passes a fresh function identity for the same model.
+  const springBoneMatcherRef = useRef<BoneMatcher>(springBoneMatcher);
+  useEffect(() => {
+    springBoneMatcherRef.current = springBoneMatcher;
+  }, [springBoneMatcher]);
+
   useEffect(() => {
     const meshes: THREE.Mesh[] = [];
     let foundBone: THREE.Object3D | null = null;
@@ -169,7 +190,10 @@ export function AvatarFace({
         });
       }
 
-      // debug: ดูชื่อ bone ทั้งหมด โดยเฉพาะโซนมือ/นิ้ว
+      // debug: ดูชื่อ bone ทั้งหมด โดยเฉพาะโซนมือ/นิ้ว/ผม — เปิดบล็อกนี้เวลา
+      // เพิ่มโมเดลใหม่ที่ physics ไม่ทำงาน เพื่อดูว่า bone ชื่อจริงๆ คืออะไร
+      // แล้วเอาไปเขียน BoneMatcher ให้ตรง (ดู KEYWORD_MATCHER ใน
+      // lib/spring-bones.ts สำหรับโมเดลที่ไม่มี prefix "PHYS")
       // const boneNames: string[] = [];
       // gltf.scene.traverse((obj) => {
       //   if ((obj as THREE.Bone).isBone) boneNames.push(obj.name);
@@ -229,14 +253,18 @@ export function AvatarFace({
       );
     }
 
-    // Same contract as bindRig: the PHYS chains must be captured before
+    // Same contract as bindRig: the physics chains must be captured before
     // anything has posed them, so this belongs right here and nowhere later.
-    const springs = bindSpringBones(gltf.scene);
+    // Which bones count as "physics bones" is model-dependent — see
+    // springBoneMatcher prop / BoneMatcher in lib/spring-bones.ts.
+    const springs = bindSpringBones(gltf.scene, springBoneMatcherRef.current);
     springRef.current = springs;
 
     if (springs.chains.length === 0) {
       console.warn(
-        "[AvatarFace] ไม่พบ bone ฟิสิกส์ (PHYS) — ผม/กระโปรง/ผ้าคลุมจะไม่ไหว",
+        "[AvatarFace] ไม่พบ spring bone เลย — ผม/กระโปรง/ผ้าคลุมจะไม่ไหว " +
+          "(เช็คว่าโมเดลนี้ตั้งชื่อ bone ตรงกับ springBoneMatcher ที่ส่งเข้ามาไหม " +
+          "ถ้าโมเดลไม่มี prefix 'PHYS' ต้องส่ง matcher อื่นเข้ามา เช่น KEYWORD_MATCHER)",
       );
     } else {
       console.log(

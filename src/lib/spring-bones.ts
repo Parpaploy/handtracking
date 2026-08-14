@@ -18,28 +18,129 @@ import * as THREE from "three";
 /*                                                                     */
 /* Everything is computed in the model space of the glTF root, so the  */
 /* leva scale/rotation on the wrapping group cannot affect the physics.*/
+/*                                                                     */
+/* NOT EVERY RIG NAMES ITS PHYS BONES "PHYS":                          */
+/* Avatar V3 is exported from Blender with a "PHYS" prefix baked into  */
+/* every jiggle bone's name. Other rigs (e.g. Ryumii 3D) don't use that*/
+/* convention at all, so matching literal "PHYS" finds zero bones and  */
+/* the chain list comes back empty — physics silently does nothing.    */
+/* BoneMatcher below decouples "which bones are physics bones" and     */
+/* "which group they belong to" from the rest of the module, so each   */
+/* model can supply its own naming convention. See PHYS_MATCHER and    */
+/* KEYWORD_MATCHER at the bottom of this section.                      */
 /* ------------------------------------------------------------------ */
-
-/**
- * Every physics bone in this rig has PHYS in its name, on both the DEF-
- * prefixed chains (hair, bangs, skirt, hat) and the bare ones (PHYS.Cape.*).
- * "CAPE CONTROL IK .L" deliberately does not match: it is an IK control whose
- * constraint glTF threw away, so it drives nothing.
- */
-const PHYS_RE = /PHYS/i;
 
 export type SpringGroup = "hair" | "skirt" | "cape" | "hat";
 
 export const SPRING_GROUPS: SpringGroup[] = ["hair", "skirt", "cape", "hat"];
 
-/** Bangs and the middle bang are hair; "Hatrim" falls through to hat. */
-function groupOf(name: string): SpringGroup | null {
+/**
+ * Per-model naming convention for physics bones.
+ *
+ * isPhysBone: does this bone belong to *some* spring chain at all?
+ * groupOf: given a chain ROOT's name, which group does the whole chain
+ *   belong to? (Only ever called on chain roots, never on every bone in
+ *   the chain — see bindSpringBones.)
+ *
+ * Swapping the matcher is the only thing a new rig should ever need: the
+ * walk/bind/simulate logic below never references bone names directly.
+ */
+export interface BoneMatcher {
+  isPhysBone: (name: string) => boolean;
+  groupOf: (name: string) => SpringGroup | null;
+}
+
+/** Shared group classification: hair/bangs, skirt, cape, hat. */
+function classify(name: string): SpringGroup | null {
   if (/hair|bang/i.test(name)) return "hair";
   if (/skirt/i.test(name)) return "skirt";
-  if (/cape/i.test(name)) return "cape";
+  if (/cape|cloak/i.test(name)) return "cape";
   if (/hat/i.test(name)) return "hat";
   return null;
 }
+
+/**
+ * Every physics bone in MEGUMIN RIG (Avatar V3) has PHYS in its name, on
+ * both the DEF-prefixed chains (hair, bangs, skirt, hat) and the bare ones
+ * (PHYS.Cape.*). "CAPE CONTROL IK .L" deliberately does not match: it is an
+ * IK control whose constraint glTF threw away, so it drives nothing.
+ */
+const PHYS_RE = /PHYS/i;
+
+export const PHYS_MATCHER: BoneMatcher = {
+  isPhysBone: (name) => PHYS_RE.test(name),
+  groupOf: classify,
+};
+
+/**
+ * Fallback for rigs that don't tag physics bones with any dedicated prefix
+ * (e.g. Ryumii 3D) — matches directly on the group keywords instead.
+ *
+ * This is broader than PHYS_MATCHER and can misfire: any bone whose name
+ * happens to contain "hair"/"skirt"/"cape"/"hat" gets pulled in, including
+ * a rig's main hair-root bone that's meant to stay rigid, or an IK/control
+ * bone with no real chain below it. Verify against the actual bone list for
+ * a given model (see the commented-out bone dump in AvatarFace's load
+ * effect) before shipping this as a model's default — if it grabs the wrong
+ * bones, write a dedicated matcher for that model instead, matching literal
+ * chain-root names rather than a keyword.
+ */
+export const KEYWORD_MATCHER: BoneMatcher = {
+  isPhysBone: (name) => /hair|bang|skirt|cape|cloak|hat/i.test(name),
+  groupOf: classify,
+};
+
+/**
+ * Ryumii 3D's rig, read from its actual bone names (see the bone dump in
+ * AvatarFace's load effect). It has no "PHYS" prefix and — unlike Avatar
+ * V3 — no single-chain-per-root shape either: several rigid hub bones each
+ * fan out into MULTIPLE independent hair strands:
+ *
+ *   HairFrontRoot  -> HairFrontC(001) / HairFrontR(001) / HairFrontL(001)
+ *   TwintailRoot   -> Twintail001..004 L, and 001..004 R (two chains)
+ *   HairBackRoot   -> HairAL/BL/CL/DL/El 001-003, and AR/BR/CR/DR/Er (10 chains)
+ *   KusegeRoot     -> HairKusegeL(001-003), HairKusegeR(001-003)
+ *   HairRibbonRoot -> HairRibbonRootL -> A/B/C/D 001-003 L, and RootR -> ...R
+ *   AhogeRoot      -> Ahoge001..004
+ *
+ * bindSpringBones only ever follows a chain root's FIRST matched child, so
+ * matching a hub bone itself (e.g. "HairFrontRoot") would silently collapse
+ * three real strands into one wrong chain and drop the other two — which is
+ * exactly what KEYWORD_MATCHER did (it matches anything containing "hair",
+ * hubs included) and why the face distorted.
+ *
+ * The fix used here needs no branching support in the algorithm at all: every
+ * hub name is deliberately left UNMATCHED (they end in "Root", which none of
+ * the patterns below accept), so each of its named children independently
+ * qualifies as its own chain root — the existing "root = matched bone whose
+ * parent isn't matched" logic then finds every strand on its own.
+ *
+ * Only hair strands are covered for now (that's what was asked for). Ryumii
+ * also has plenty of other jiggle-able bits — Twintail/HairRibbon overlap
+ * with hair already, but Wing*, HoodieRibbon*, SleeveRibbon*, LegRibbon*,
+ * Tail*, BagStrap*Root — that aren't included here and won't move. Extend
+ * RYUMII_HAIR_PATTERNS (and groupOf, if any of those should count as
+ * "cape" rather than "hair") if that's wanted later.
+ */
+const RYUMII_HAIR_PATTERNS: RegExp[] = [
+  /^Ahoge\d+$/, // AhogeRoot -> Ahoge001..004
+  /^HairFront[CRL]\d*$/, // HairFrontRoot -> HairFrontC(001)/R(001)/L(001)
+  /^Twintail\d{3}[LR]$/, // TwintailRoot -> Twintail001..004 L/R
+  /^HairSide\d{3}[LR]$/, // HairSide001..003 L/R
+  /^Hair[A-E][LR]\d{3}$/i, // HairBackRoot -> HairAL001.. / HairEr003 (etc.)
+  /^HairKusege[LR]\d*$/, // KusegeRoot -> HairKusegeL(001-003)/R(001-003)
+  /^HairRibbon[A-D]\d{3}[LR]$/, // HairRibbonRoot(L/R) -> A/B/C/D 001-003 L/R
+];
+
+function isRyumiiHairBone(name: string): boolean {
+  return RYUMII_HAIR_PATTERNS.some((re) => re.test(name));
+}
+
+export const RYUMII_3D_MATCHER: BoneMatcher = {
+  isPhysBone: isRyumiiHairBone,
+  // Every pattern above is a hair strand, so anything this matches is "hair".
+  groupOf: (name) => (isRyumiiHairBone(name) ? "hair" : null),
+};
 
 export interface SpringParams {
   /** How hard a joint is pulled back to its bind direction, per second. */
@@ -68,10 +169,38 @@ export interface SpringParams {
  * them, so a skirt stays heavier than hair at every setting.
  */
 export const GROUP_DEFAULTS: Record<SpringGroup, SpringParams> = {
-  hair: { stiffness: 10, gravity: 5, drag: 0.32, wind: 1.1, radius: 0.03, maxBend: 85 },
-  skirt: { stiffness: 16, gravity: 8, drag: 0.45, wind: 0.5, radius: 0.035, maxBend: 70 },
-  cape: { stiffness: 7, gravity: 5, drag: 0.36, wind: 1.6, radius: 0.04, maxBend: 85 },
-  hat: { stiffness: 26, gravity: 2, drag: 0.6, wind: 0.3, radius: 0.03, maxBend: 30 },
+  hair: {
+    stiffness: 10,
+    gravity: 5,
+    drag: 0.32,
+    wind: 1.1,
+    radius: 0.03,
+    maxBend: 85,
+  },
+  skirt: {
+    stiffness: 16,
+    gravity: 8,
+    drag: 0.45,
+    wind: 0.5,
+    radius: 0.035,
+    maxBend: 70,
+  },
+  cape: {
+    stiffness: 7,
+    gravity: 5,
+    drag: 0.36,
+    wind: 1.6,
+    radius: 0.04,
+    maxBend: 85,
+  },
+  hat: {
+    stiffness: 26,
+    gravity: 2,
+    drag: 0.6,
+    wind: 0.3,
+    radius: 0.03,
+    maxBend: 30,
+  },
 };
 
 /**
@@ -79,6 +208,14 @@ export const GROUP_DEFAULTS: Record<SpringGroup, SpringParams> = {
  * they hang off. Radii are fractions of the torso length so they survive any
  * export scale. A skirt with no leg colliders reads as legs poking through
  * fabric on every step, which is worse than no physics at all.
+ *
+ * NOTE: these bone names ("DEF-spine", "DEF-thighL", ...) are Avatar V3's
+ * skeleton naming, not a physics-bone naming convention — they're unrelated
+ * to BoneMatcher. A model whose skeleton uses different collider-bone names
+ * (Ryumii 3D almost certainly does) will bind zero colliders here; that's
+ * harmless — bindSpringBones() just skips specs whose bones aren't found —
+ * but it does mean skirts/capes on that model clip through legs until a
+ * model-specific collider list is added the same way COLLIDER_SPECS is here.
  */
 interface ColliderSpec {
   /** Sanitized name of the bone the capsule starts at. */
@@ -90,13 +227,48 @@ interface ColliderSpec {
 }
 
 const COLLIDER_SPECS: ColliderSpec[] = [
-  { from: "DEF-spine", to: "DEF-spine003", radius: 0.17, groups: ["skirt", "cape"] },
-  { from: "DEF-thighL", to: "DEF-shinL", radius: 0.115, groups: ["skirt", "cape"] },
-  { from: "DEF-thighR", to: "DEF-shinR", radius: 0.115, groups: ["skirt", "cape"] },
-  { from: "DEF-shinL", to: "DEF-footL", radius: 0.085, groups: ["skirt", "cape"] },
-  { from: "DEF-shinR", to: "DEF-footR", radius: 0.085, groups: ["skirt", "cape"] },
-  { from: "DEF-spine003", to: "DEF-spine005", radius: 0.15, groups: ["hair", "cape"] },
-  { from: "DEF-spine006", to: "DEF-spine006", radius: 0.155, groups: ["hair", "hat"] },
+  {
+    from: "DEF-spine",
+    to: "DEF-spine003",
+    radius: 0.17,
+    groups: ["skirt", "cape"],
+  },
+  {
+    from: "DEF-thighL",
+    to: "DEF-shinL",
+    radius: 0.115,
+    groups: ["skirt", "cape"],
+  },
+  {
+    from: "DEF-thighR",
+    to: "DEF-shinR",
+    radius: 0.115,
+    groups: ["skirt", "cape"],
+  },
+  {
+    from: "DEF-shinL",
+    to: "DEF-footL",
+    radius: 0.085,
+    groups: ["skirt", "cape"],
+  },
+  {
+    from: "DEF-shinR",
+    to: "DEF-footR",
+    radius: 0.085,
+    groups: ["skirt", "cape"],
+  },
+  {
+    from: "DEF-spine003",
+    to: "DEF-spine005",
+    radius: 0.15,
+    groups: ["hair", "cape"],
+  },
+  {
+    from: "DEF-spine006",
+    to: "DEF-spine006",
+    radius: 0.155,
+    groups: ["hair", "hat"],
+  },
 ];
 
 interface SpringJoint {
@@ -202,16 +374,27 @@ function modelSpace(
   _m.decompose(outPos, outQuat, _scale);
 }
 
-function physChildren(obj: THREE.Object3D): THREE.Object3D[] {
-  return obj.children.filter((c) => PHYS_RE.test(c.name));
+function physChildren(
+  obj: THREE.Object3D,
+  matcher: BoneMatcher,
+): THREE.Object3D[] {
+  return obj.children.filter((c) => matcher.isPhysBone(c.name));
 }
 
 /**
- * Walk the PHYS chains and capture the bind pose. Must run on a freshly
+ * Walk the physics chains and capture the bind pose. Must run on a freshly
  * loaded scene, before anything has posed the skeleton — same contract as
  * bindRig in pose-rig.ts, and for the same reason.
+ *
+ * `matcher` decides which bones count as physics bones and which group a
+ * chain belongs to; defaults to Avatar V3's "PHYS"-prefix convention. Pass
+ * a different matcher (e.g. KEYWORD_MATCHER) for rigs that don't use that
+ * prefix, or the chain list comes back empty and nothing will move.
  */
-export function bindSpringBones(root: THREE.Object3D): SpringRig {
+export function bindSpringBones(
+  root: THREE.Object3D,
+  matcher: BoneMatcher = PHYS_MATCHER,
+): SpringRig {
   root.updateMatrixWorld(true);
   _rootInv.copy(root.matrixWorld).invert();
 
@@ -221,8 +404,11 @@ export function bindSpringBones(root: THREE.Object3D): SpringRig {
   root.traverse((obj) => {
     if (!obj.name) return;
     byName.set(obj.name, obj);
-    // A chain root is a PHYS bone whose parent is not one.
-    if (PHYS_RE.test(obj.name) && !(obj.parent && PHYS_RE.test(obj.parent.name))) {
+    // A chain root is a physics bone whose parent is not one.
+    if (
+      matcher.isPhysBone(obj.name) &&
+      !(obj.parent && matcher.isPhysBone(obj.parent.name))
+    ) {
       roots.push(obj);
     }
   });
@@ -231,13 +417,13 @@ export function bindSpringBones(root: THREE.Object3D): SpringRig {
   const chains: SpringChain[] = [];
 
   for (const chainRoot of roots) {
-    const group = groupOf(chainRoot.name);
+    const group = matcher.groupOf(chainRoot.name);
     if (!group) continue;
 
-    // Follow the first PHYS child down; these chains never branch.
+    // Follow the first physics child down; these chains never branch.
     const bones: THREE.Object3D[] = [chainRoot];
     for (;;) {
-      const next = physChildren(bones[bones.length - 1])[0];
+      const next = physChildren(bones[bones.length - 1], matcher)[0];
       if (!next) break;
       bones.push(next);
     }
@@ -525,9 +711,7 @@ function stepSprings(
 
     // Where the anchor bone is *at this substep*, not where it ended up.
     _anchorPos.lerpVectors(chain.prevParentPos, chain.parentPos, alpha);
-    _anchorQuat
-      .copy(chain.prevParentQuat)
-      .slerp(chain.parentQuat, alpha);
+    _anchorQuat.copy(chain.prevParentQuat).slerp(chain.parentQuat, alpha);
     _anchorMat.compose(_anchorPos, _anchorQuat, _one);
     // Back to world space, because that is the space bone.matrixWorld lives in
     // and the joints below this one are composed off it.
@@ -562,7 +746,8 @@ function stepSprings(
       // See MAX_CARRY: one bad tracking frame must not be able to fling the
       // chain somewhere it can never unwind from.
       const maxCarry = joint.length * MAX_CARRY;
-      if (_inertia.lengthSq() > maxCarry * maxCarry) _inertia.setLength(maxCarry);
+      if (_inertia.lengthSq() > maxCarry * maxCarry)
+        _inertia.setLength(maxCarry);
 
       _next
         .copy(joint.tail)

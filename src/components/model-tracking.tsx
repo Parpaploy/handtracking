@@ -8,6 +8,7 @@ import { AvatarFace } from "../components/avatar-face";
 import { useFaceBlendshapes } from "../hooks/use-blendshapes";
 import { usePoseLandmarks } from "../hooks/use-pose";
 import { useHandLandmarks } from "../hooks/use-hands";
+import { RYUMII_3D_MATCHER, type BoneMatcher } from "../lib/spring-bones";
 
 // เพิ่มโมเดลใหม่ที่นี่ — key คือชื่อที่โชว์ใน dropdown ของ Leva
 const MODELS: Record<
@@ -22,12 +23,24 @@ const MODELS: Record<
      * เช่นโมเดลสาย VRM/VRoid มักใช้ "Fcl_EYE_Close_L" แทน "eyeBlinkLeft"
      */
     morphOverrides?: Record<string, string>;
+    /**
+     * ตัวจับ bone ฟิสิกส์ (ผม/กระโปรง/ผ้าคลุม/หมวก) ของโมเดลนี้ — ไม่ใส่
+     * = ใช้ PHYS_MATCHER (default ใน AvatarFace) ซึ่งจับเฉพาะ bone ที่ชื่อ
+     * ขึ้นต้น/มีคำว่า "PHYS" (แบบที่ Avatar V3 export มาจาก Blender)
+     *
+     * โมเดลที่ไม่มี prefix นี้ (เช่น Ryumii 3D) ต้องใส่ matcher อื่น ไม่งั้น
+     * bindSpringBones จะเจอ 0 chain แล้วผม/กระโปรงจะไม่ขยับเลยแม้เปิด toggle
+     * ไว้ก็ตาม — ดู console log "[AvatarFace] ผูก spring bone สำเร็จ" ตอน
+     * โหลดโมเดลเพื่อยืนยันว่าจับ bone ได้ถูกตัวจริง
+     */
+    springBoneMatcher?: BoneMatcher;
   }
 > = {
   "Avatar V3": {
     url: "/models/avatar-v3.glb",
     headBoneName: "DEF-spine006",
     // ไม่ต้องใส่ morphOverrides เพราะโมเดลนี้ใช้ชื่อ ARKit ตรงเป๊ะอยู่แล้ว
+    // ไม่ต้องใส่ springBoneMatcher เพราะ bone ชื่อขึ้นต้นด้วย "PHYS" อยู่แล้ว
   },
   "Ryumii 3D": {
     url: "/models/Ryumii3D.glb",
@@ -59,6 +72,13 @@ const MODELS: Record<
       cheekPuff: "extra_cheek",
       tongueOut: "mth_bero1",
     },
+    // โมเดลนี้ไม่มี prefix "PHYS" บน bone ผม เลยใช้ matcher เฉพาะของ Ryumii
+    // ที่เขียนจาก bone list จริงของโมเดลนี้ (ดู RYUMII_3D_MATCHER ใน
+    // lib/spring-bones.ts) — จับเฉพาะเส้นผมจริง (Ahoge/HairFront/Twintail/
+    // HairSide/HairBack.../HairKusege/HairRibbon...) ไม่จับ bone hub/root
+    // ที่ควรอยู่นิ่ง ต่างจาก KEYWORD_MATCHER แบบเดิมที่จับกว้างเกินไปจน
+    // หน้าโมเดลบิดเบี้ยว
+    springBoneMatcher: RYUMII_3D_MATCHER,
   },
 };
 
@@ -214,7 +234,12 @@ export default function ModelTracking() {
     },
   });
 
-  const { url: modelUrl, headBoneName, morphOverrides } = MODELS[model];
+  const {
+    url: modelUrl,
+    headBoneName,
+    morphOverrides,
+    springBoneMatcher,
+  } = MODELS[model];
 
   // ค่า default ของโมเดลที่กำลังเลือกอยู่ตอนนี้ (ไม่มีการจำค่าที่เคยปรับไว้)
   const defaults = getDefaults(model);
@@ -553,6 +578,7 @@ export default function ModelTracking() {
               headRotationRef={headRotationRef}
               headBoneName={headBoneName}
               morphOverrides={morphOverrides}
+              springBoneMatcher={springBoneMatcher}
               poseRef={poseRef}
               handsRef={handsRef}
               bodyTracking={bodyTracking}
