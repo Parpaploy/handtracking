@@ -11,40 +11,14 @@ import {
   DEFAULT_ONE_EURO,
   type OneEuroParams,
 } from "../lib/one-euro";
-
-export type BlendshapeMap = Record<string, number>;
-
-export interface HeadRotation {
-  x: number;
-  y: number;
-  z: number;
-}
+import { LEFT_RIGHT_PAIRS } from "../constants/model.const";
+import type {
+  BlendshapeMap,
+  HeadRotation,
+} from "../interfaces/model.interface";
 
 const WASM_PATH = "/mediapipe/tasks-vision/wasm";
 const MODEL_PATH = "/mediapipe/face_landmarker/face_landmarker.task";
-
-// คู่ blendshape ที่ต้องสลับชื่อกันเวลา mirror ภาพ
-// (ซ้าย-ขวาของ MediaPipe อิงตามตัวแบบจริง ไม่ใช่ตามภาพที่ผู้ใช้เห็นในกระจก)
-const LEFT_RIGHT_PAIRS: [string, string][] = [
-  ["eyeBlinkLeft", "eyeBlinkRight"],
-  ["eyeLookDownLeft", "eyeLookDownRight"],
-  ["eyeLookInLeft", "eyeLookInRight"],
-  ["eyeLookOutLeft", "eyeLookOutRight"],
-  ["eyeLookUpLeft", "eyeLookUpRight"],
-  ["eyeSquintLeft", "eyeSquintRight"],
-  ["eyeWideLeft", "eyeWideRight"],
-  ["browDownLeft", "browDownRight"],
-  ["browOuterUpLeft", "browOuterUpRight"],
-  ["cheekSquintLeft", "cheekSquintRight"],
-  ["mouthDimpleLeft", "mouthDimpleRight"],
-  ["mouthFrownLeft", "mouthFrownRight"],
-  ["mouthLowerDownLeft", "mouthLowerDownRight"],
-  ["mouthPressLeft", "mouthPressRight"],
-  ["mouthSmileLeft", "mouthSmileRight"],
-  ["mouthStretchLeft", "mouthStretchRight"],
-  ["mouthUpperUpLeft", "mouthUpperUpRight"],
-  ["noseSneerLeft", "noseSneerRight"],
-];
 
 function matrixToEuler(
   m: ArrayLike<number>,
@@ -69,8 +43,6 @@ function matrixToEuler(
     out.x = Math.atan2(-m23, m22);
   }
 
-  // mirror ตามแนวตั้ง (แกน Y ของโลก) ทำให้ yaw (y) และ roll (z) กลับเครื่องหมาย
-  // ส่วน pitch (x, ก้ม-เงย) ไม่ได้รับผลกระทบ
   if (mirror) {
     out.y = -out.y;
     out.z = -out.z;
@@ -79,21 +51,11 @@ function matrixToEuler(
   return out;
 }
 
-/**
- * Runs FaceLandmarker on the shared webcam video.
- *
- * Output lands in refs, not state, matching usePoseLandmarks and
- * useHandLandmarks. This used to call setBlendshapes and setHeadRotation on
- * every detected frame, which re-rendered the whole /model route 30-60 times a
- * second purely to hand three.js some numbers. The dropped frames that caused
- * showed up as head jitter — and the hair chains hang off the head bone, so
- * the spring bones amplify it into a visible twitch.
- */
 export function useFaceBlendshapes(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   options?: { mirror?: boolean; filter?: OneEuroParams },
 ) {
-  const mirror = options?.mirror ?? true; // ให้ default ตรงกับ video ที่ scaleX(-1) อยู่แล้ว
+  const mirror = options?.mirror ?? true;
   const filterParams = options?.filter ?? DEFAULT_ONE_EURO;
 
   const blendshapesRef = useRef<BlendshapeMap>({});
@@ -104,12 +66,14 @@ export function useFaceBlendshapes(
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const mirrorRef = useRef(mirror);
   const paramsRef = useRef(filterParams);
-  paramsRef.current = filterParams;
 
-  // อัปเดตค่า mirror ล่าสุดใน ref แบบ side-effect (ไม่แตะระหว่าง render)
   useEffect(() => {
     mirrorRef.current = mirror;
   }, [mirror]);
+
+  useEffect(() => {
+    paramsRef.current = filterParams;
+  }, [filterParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,17 +81,12 @@ export function useFaceBlendshapes(
     let lastVideoTime = -1;
     let lastFound = false;
     let lastMirror = mirrorRef.current;
-    // Timestamps handed to MediaPipe must strictly increase, and it converts
-    // ms to microseconds internally — sub-millisecond wobble in
-    // performance.now() permanently poisons the graph. Whole ms, monotonic.
+
     let lastTimestamp = 0;
 
-    // The head pose comes out of a solved transformation matrix, which is
-    // every bit as jittery as the raw landmarks. Same filter, one "point".
     const rotationFilter = createLandmarkFilter();
     const rotationIn: HeadRotation[] = [{ x: 0, y: 0, z: 0 }];
-    // Raw scores, kept separate so the mirrored map can be built without
-    // reading values this frame already overwrote.
+
     const raw: BlendshapeMap = {};
 
     const init = async () => {
@@ -165,8 +124,6 @@ export function useFaceBlendshapes(
         video &&
         landmarker &&
         video.readyState >= 2 &&
-        // Same INVALID_ARGUMENT guard the pose and hand hooks carry; this one
-        // was missing it.
         video.videoWidth > 0 &&
         video.currentTime !== lastVideoTime
       ) {
@@ -188,8 +145,7 @@ export function useFaceBlendshapes(
           );
 
           const isMirrored = mirrorRef.current;
-          // Flipping mirror negates yaw and roll, which the filter would
-          // otherwise chase across the jump as if the head had whipped round.
+
           if (isMirrored !== lastMirror) {
             lastMirror = isMirrored;
             resetLandmarkFilter(rotationFilter);
@@ -201,8 +157,6 @@ export function useFaceBlendshapes(
           if (shapes) {
             for (const s of shapes) raw[s.categoryName] = s.score;
 
-            // Mutated in place: the 52 category names never change, so there
-            // is nothing to gain from a fresh object every frame.
             const out = blendshapesRef.current;
             for (const s of shapes) out[s.categoryName] = raw[s.categoryName];
 
@@ -230,7 +184,6 @@ export function useFaceBlendshapes(
             resetLandmarkFilter(rotationFilter);
           }
 
-          // Only the coarse flag is state, and only when it actually flips.
           if (found !== lastFound) {
             lastFound = found;
             setFaceFound(found);

@@ -13,13 +13,6 @@ import {
 const WASM_PATH = "/mediapipe/tasks-vision/wasm";
 const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
 
-/**
- * Runs HandLandmarker on the shared webcam video.
- *
- * Same shape as usePoseLandmarks: landmarks go in a ref because this fires at
- * video frame rate and re-rendering React just to hand three.js some numbers
- * is pure waste. Only the coarse flags are state.
- */
 export function useHandLandmarks(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled = true,
@@ -30,7 +23,10 @@ export function useHandLandmarks(
   const [handCount, setHandCount] = useState(0);
 
   const paramsRef = useRef(filterParams);
-  paramsRef.current = filterParams;
+
+  useEffect(() => {
+    paramsRef.current = filterParams;
+  }, [filterParams]);
 
   useEffect(() => {
     if (!enabled) {
@@ -43,14 +39,9 @@ export function useHandLandmarks(
     let landmarker: HandLandmarker | null = null;
     let lastVideoTime = -1;
     let lastCount = 0;
-    // MediaPipe rejects a frame whose timestamp is not strictly greater than
-    // the previous one, and converts ms to microseconds internally — so a
-    // sub-millisecond wobble in performance.now() permanently poisons the
-    // graph. Whole milliseconds that can only go up.
+
     let lastTimestamp = 0;
-    // One filter per hand, keyed by handedness rather than by array position:
-    // MediaPipe does not promise a stable order, and filtering the left hand
-    // against the right hand's history produces a spectacular lunge.
+
     const filters = new Map<Side, LandmarkFilter>();
 
     const init = async () => {
@@ -126,8 +117,6 @@ export function useHandLandmarks(
             });
           }
 
-          // A hand that left the frame must not be smoothed against where it
-          // was when it comes back — that reads as the hand flying in.
           for (const [side, filter] of filters) {
             if (!seen.has(side)) resetLandmarkFilter(filter);
           }

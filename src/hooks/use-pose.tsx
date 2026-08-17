@@ -12,13 +12,6 @@ import {
 const WASM_PATH = "/mediapipe/tasks-vision/wasm";
 const MODEL_PATH = "/mediapipe/pose_landmarker/pose_landmarker_lite.task";
 
-/**
- * Runs PoseLandmarker on the shared webcam video.
- *
- * Landmarks land in a ref rather than state on purpose: this fires at video
- * frame rate, and re-rendering React 30-60 times a second just to hand three.js
- * some numbers is pure waste. Only the coarse flags are state.
- */
 export function usePoseLandmarks(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled = true,
@@ -28,10 +21,11 @@ export function usePoseLandmarks(
   const [ready, setReady] = useState(false);
   const [poseFound, setPoseFound] = useState(false);
 
-  // Read inside the detect loop rather than captured, so dragging the leva
-  // sliders retunes the filter without tearing down the landmarker.
   const paramsRef = useRef(filterParams);
-  paramsRef.current = filterParams;
+
+  useEffect(() => {
+    paramsRef.current = filterParams;
+  }, [filterParams]);
 
   useEffect(() => {
     if (!enabled) {
@@ -44,15 +38,9 @@ export function usePoseLandmarks(
     let landmarker: PoseLandmarker | null = null;
     let lastVideoTime = -1;
     let lastFound = false;
-    // MediaPipe rejects a frame whose timestamp is not strictly greater than
-    // the previous one, and it converts ms to microseconds internally — so a
-    // sub-millisecond wobble in performance.now() is enough to poison the
-    // graph permanently ("Packet timestamp mismatch on ... norm_rect").
-    // Feed it whole milliseconds that can only ever go up.
+
     let lastTimestamp = 0;
-    // MediaPipe's depth estimate is its noisiest channel by a wide margin, and
-    // a swing-only retarget turns that noise straight into a shaking arm. See
-    // lib/one-euro.ts for why a plain exponential smooth cannot fix it.
+
     const filter = createLandmarkFilter();
 
     const init = async () => {
@@ -115,9 +103,7 @@ export function usePoseLandmarks(
             }
           } else {
             poseRef.current = null;
-            // Forget the old position: smoothing the re-acquire against a
-            // stale one makes the arm visibly slide in from where the body
-            // used to be.
+
             resetLandmarkFilter(filter);
             if (lastFound) {
               lastFound = false;
@@ -144,7 +130,5 @@ export function usePoseLandmarks(
     };
   }, [videoRef, enabled]);
 
-  // Guard the flags too: the teardown above is async-adjacent, and a stale
-  // "tracking..." while the landmarker is being rebuilt reads as a lie.
   return { poseRef, ready: enabled && ready, poseFound: enabled && poseFound };
 }
