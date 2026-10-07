@@ -507,16 +507,23 @@ function BrandMark() {
       viewBox="0 0 48 48"
       fill="none"
     >
-      <rect x="2" y="2" width="44" height="44" rx="14" fill="#433d35" />
       <path
-        d="M15 34V23a2.5 2.5 0 0 1 5 0v4-11a2.5 2.5 0 0 1 5 0v10-8a2.5 2.5 0 0 1 5 0v9-5a2.5 2.5 0 0 1 5 0v9c0 5-3.4 8-8 8h-4c-3.7 0-6.1-1.5-8-5l-2-3.5a2.5 2.5 0 0 1 4.3-2.5L20 30"
-        stroke="#fafaf7"
+        d="M17 6H12a5 5 0 0 0-5 5v5m24-10h5a5 5 0 0 1 5 5v5M7 32v5a5 5 0 0 0 5 5h5m14 0h5a5 5 0 0 0 5-5v-5"
+        stroke="#b1ada1"
         strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="m14 31 8-9 6 4 8-11"
+        stroke="#c15f3c"
+        strokeWidth="2.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="35" cy="13" r="3" fill="#c15f3c" />
-      <circle cx="35" cy="13" r="6" stroke="#c15f3c" strokeOpacity=".38" />
+      <circle cx="14" cy="31" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
+      <circle cx="22" cy="22" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
+      <circle cx="28" cy="26" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
+      <circle cx="36" cy="15" r="2.6" fill="#c15f3c" />
     </svg>
   );
 }
