@@ -458,6 +458,12 @@ export default function Menu() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-body text-ink">
       <main className="w-full max-w-xl text-center">
+        <div className="mb-8 flex items-center justify-center gap-3">
+          <BrandMark />
+          <span className="font-display text-xl font-semibold tracking-[-0.03em] text-ink-deep md:text-2xl">
+            ICAT Tracking
+          </span>
+        </div>
         <h1 className="font-display text-3xl font-medium md:text-4xl">
           เล่นด้วยมือ
         </h1>
@@ -490,5 +496,27 @@ export default function Menu() {
         </p>
       </main>
     </div>
+  );
+}
+
+function BrandMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-12"
+      viewBox="0 0 48 48"
+      fill="none"
+    >
+      <rect x="2" y="2" width="44" height="44" rx="14" fill="#433d35" />
+      <path
+        d="M15 34V23a2.5 2.5 0 0 1 5 0v4-11a2.5 2.5 0 0 1 5 0v10-8a2.5 2.5 0 0 1 5 0v9-5a2.5 2.5 0 0 1 5 0v9c0 5-3.4 8-8 8h-4c-3.7 0-6.1-1.5-8-5l-2-3.5a2.5 2.5 0 0 1 4.3-2.5L20 30"
+        stroke="#fafaf7"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="35" cy="13" r="3" fill="#c15f3c" />
+      <circle cx="35" cy="13" r="6" stroke="#c15f3c" strokeOpacity=".38" />
+    </svg>
   );
 }

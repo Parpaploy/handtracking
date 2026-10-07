@@ -12,8 +12,8 @@
   --color-ink-deep: #2b2722;
   --color-surface: #ffffff;
 
-  --font-display: "Mitr", "Anuphan", sans-serif;
-  --font-body: "Anuphan", "Mitr", sans-serif;
+  --font-display: "IBM Plex Sans Thai", "IBM Plex Sans", sans-serif;
+  --font-body: "IBM Plex Sans Thai", "IBM Plex Sans", sans-serif;
 
   --animate-rise: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
