@@ -5,6 +5,15 @@ import type {
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import {
+  CAMERA_CONSTRAINTS,
+  MAX_HANDS,
+  createHandIdTracker,
+  drawVideoCover,
+  mapToStage,
+  syncCanvasToDisplay,
+} from "../lib/stage";
+
 declare const Hands: HandsConstructor;
 
 const FINGER_LABELS = ["ซอล", "โด", "เร", "มี", "ฟา"];
@@ -188,31 +197,34 @@ export function usePianoHandTracking(
 
     const notesMap = activeNotesMap.current;
 
-    canvas.width = 720;
-    canvas.height = 560;
+    syncCanvasToDisplay(canvas);
+    const assignIds = createHandIdTracker();
 
     const hands = new Hands({
       locateFile: (f: string) =>
         `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: MAX_HANDS,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.5,
     });
 
     hands.onResults((results: HandResults) => {
+      syncCanvasToDisplay(canvas);
       const w = canvas.width;
       const h = canvas.height;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
 
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(results.image, -w, 0, w, h);
-      ctx.restore();
+      drawVideoCover(ctx, results.image, vw, vh, w, h);
 
-      const landmarks = results.multiHandLandmarks ?? [];
+      const landmarks = (results.multiHandLandmarks ?? []).map((lm) =>
+        mapToStage(lm, vw, vh, w, h),
+      );
       const handedness = results.multiHandedness ?? [];
+      const ids = assignIds(landmarks);
 
       const newPressed = new Set<string>();
       const noteNames: string[] = [];
@@ -253,7 +265,7 @@ export function usePianoHandTracking(
           drawBubble(ctx, tx, ty, FINGER_LABELS[fi], pressed, handColor);
 
           if (pressed) {
-            const noteKey = `${label}_${fi}`;
+            const noteKey = `${ids[hi]}_${fi}`;
             newPressed.add(noteKey);
             const midi =
               FINGER_NOTES[fi][0] +
@@ -287,7 +299,7 @@ export function usePianoHandTracking(
     let cancelled = false;
     let activeStream: MediaStream | null = null;
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480 } })
+      .getUserMedia(CAMERA_CONSTRAINTS)
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());

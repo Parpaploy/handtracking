@@ -7,10 +7,26 @@ import type {
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import {
+  CAMERA_CONSTRAINTS,
+  MAX_HANDS,
+  createHandIdTracker,
+  drawVideoCover,
+  mapToStage,
+  resizeKeepingContent,
+  syncCanvasToDisplay,
+} from "../lib/stage";
+
 declare const Hands: HandsConstructorLocal;
 declare const FaceMesh: FaceMeshConstructorLocal;
 
+// Fog blur radius (CSS px). Applied with a CSS filter on its own canvas
+// element: canvas `ctx.filter` is ignored by Safari, and scaling tricks
+// look blocky there.
 const BLUR_PX = 22;
+// The fog canvas extends this far past each edge so the blur doesn't fade
+// to transparent at the screen border.
+const FOG_PAD = BLUR_PX * 2;
 
 const WIPE_RADIUS = 18;
 const WIPE_STRENGTH = 0.75;
@@ -88,15 +104,15 @@ function drawMirroredVideo(
   videoEl: HTMLVideoElement,
   w: number,
   h: number,
-  blurPx: number,
 ) {
-  const pad = blurPx > 0 ? Math.ceil(blurPx * 1.5) : 0;
-
-  targetCtx.save();
-  if (blurPx > 0) targetCtx.filter = `blur(${blurPx}px)`;
-  targetCtx.scale(-1, 1);
-  targetCtx.drawImage(videoEl, -w - pad, -pad, w + pad * 2, h + pad * 2);
-  targetCtx.restore();
+  drawVideoCover(
+    targetCtx,
+    videoEl,
+    videoEl.videoWidth,
+    videoEl.videoHeight,
+    w,
+    h,
+  );
 }
 
 function paintFogStamp(
@@ -132,7 +148,7 @@ export function useSteamHandTracking(
 
   const fogLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const prevTipsRef = useRef<(Point | null)[]>([]);
+  const prevTipsRef = useRef(new Map<number, Point>());
 
   const mouthOpenRef = useRef(false);
   const mouthPosRef = useRef<Point | null>(null);
@@ -145,35 +161,54 @@ export function useSteamHandTracking(
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = 720;
-    canvas.height = 560;
+    syncCanvasToDisplay(canvas);
 
     const maskCanvas = document.createElement("canvas");
-    maskCanvas.width = 720;
-    maskCanvas.height = 560;
+    maskCanvas.width = canvas.width;
+    maskCanvas.height = canvas.height;
     maskCanvasRef.current = maskCanvas;
 
+    // Visible fog layer: sharp video × mask, blurred by the browser's CSS
+    // filter (smooth in every browser, GPU-accelerated).
     const fogLayerCanvas = document.createElement("canvas");
-    fogLayerCanvas.width = 720;
-    fogLayerCanvas.height = 560;
+    fogLayerCanvas.width = canvas.width + FOG_PAD * 2;
+    fogLayerCanvas.height = canvas.height + FOG_PAD * 2;
+    Object.assign(fogLayerCanvas.style, {
+      position: "absolute",
+      left: `${-FOG_PAD}px`,
+      top: `${-FOG_PAD}px`,
+      width: `calc(100% + ${FOG_PAD * 2}px)`,
+      height: `calc(100% + ${FOG_PAD * 2}px)`,
+      filter: `blur(${BLUR_PX}px)`,
+      pointerEvents: "none",
+    });
+    canvas.insertAdjacentElement("afterend", fogLayerCanvas);
     fogLayerCanvasRef.current = fogLayerCanvas;
+
+    // Mask padded to the fog canvas size (edges stretched into the pad).
+    const paddedMask = document.createElement("canvas");
+
+    const assignIds = createHandIdTracker();
 
     const hands = new Hands({
       locateFile: (f: string) => `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: MAX_HANDS,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.5,
     });
     hands.onResults((results: HandResultsLocal) => {
-      const landmarks = results.multiHandLandmarks ?? [];
-      const w = video.videoWidth || 720;
-      const h = video.videoHeight || 560;
+      const w = canvas.width;
+      const h = canvas.height;
+      const landmarks = (results.multiHandLandmarks ?? []).map((lm) =>
+        mapToStage(lm, video.videoWidth, video.videoHeight, w, h),
+      );
+      const ids = assignIds(landmarks);
       const maskCtx = maskCanvas.getContext("2d");
 
-      const nextPrevTips: (Point | null)[] = [];
+      const nextPrevTips = new Map<number, Point>();
       let anyPinching = false;
 
       for (let i = 0; i < landmarks.length; i++) {
@@ -181,10 +216,7 @@ export function useSteamHandTracking(
         const pinching = isPinching(lm);
         const fist = !pinching && isFist(lm);
 
-        if (!pinching && !fist) {
-          nextPrevTips[i] = null;
-          continue;
-        }
+        if (!pinching && !fist) continue;
 
         if (pinching) anyPinching = true;
 
@@ -198,7 +230,7 @@ export function useSteamHandTracking(
         const step = pinching ? WIPE_STEP : Math.max(radius * 0.4, 4);
 
         if (maskCtx) {
-          const prev = prevTipsRef.current[i];
+          const prev = prevTipsRef.current.get(ids[i]);
           const segDist = prev ? Math.hypot(x - prev.x, y - prev.y) : Infinity;
 
           if (prev && segDist <= MAX_INTERP_DIST) {
@@ -219,7 +251,7 @@ export function useSteamHandTracking(
           }
         }
 
-        nextPrevTips[i] = { x, y };
+        nextPrevTips.set(ids[i], { x, y });
       }
 
       prevTipsRef.current = nextPrevTips;
@@ -246,10 +278,22 @@ export function useSteamHandTracking(
       const chin = lm[152];
       if (!upperLip || !lowerLip || !top || !chin) return;
 
-      const w = video.videoWidth || 720;
-      const h = video.videoHeight || 560;
-      const mouthCenterX = (upperLip.x + lowerLip.x) / 2;
-      const mouthCenterY = (upperLip.y + lowerLip.y) / 2;
+      const w = canvas.width;
+      const h = canvas.height;
+      const [mouth] = mapToStage(
+        [
+          {
+            x: (upperLip.x + lowerLip.x) / 2,
+            y: (upperLip.y + lowerLip.y) / 2,
+          },
+        ],
+        video.videoWidth,
+        video.videoHeight,
+        w,
+        h,
+      );
+      const mouthCenterX = mouth.x;
+      const mouthCenterY = mouth.y;
 
       mouthPosRef.current = { x: (1 - mouthCenterX) * w, y: mouthCenterY * h };
 
@@ -274,20 +318,20 @@ export function useSteamHandTracking(
     const renderLoop = () => {
       if (cancelled) return;
 
-      const w = video.videoWidth || 720;
-      const h = video.videoHeight || 560;
+      syncCanvasToDisplay(canvas);
+      const w = canvas.width;
+      const h = canvas.height;
 
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
+      resizeKeepingContent(maskCanvas, w, h);
+      const fw = w + FOG_PAD * 2;
+      const fh = h + FOG_PAD * 2;
+      if (fogLayerCanvas.width !== fw || fogLayerCanvas.height !== fh) {
+        fogLayerCanvas.width = fw;
+        fogLayerCanvas.height = fh;
       }
-      if (maskCanvas.width !== w || maskCanvas.height !== h) {
-        maskCanvas.width = w;
-        maskCanvas.height = h;
-      }
-      if (fogLayerCanvas.width !== w || fogLayerCanvas.height !== h) {
-        fogLayerCanvas.width = w;
-        fogLayerCanvas.height = h;
+      if (paddedMask.width !== fw || paddedMask.height !== fh) {
+        paddedMask.width = fw;
+        paddedMask.height = fh;
       }
 
       const maskCtx = maskCanvas.getContext("2d");
@@ -319,17 +363,33 @@ export function useSteamHandTracking(
       }
 
       const fogCtx = fogLayerCanvas.getContext("2d");
-      if (fogCtx) {
-        fogCtx.clearRect(0, 0, w, h);
-        drawMirroredVideo(fogCtx, video, w, h, BLUR_PX);
+      const pmCtx = paddedMask.getContext("2d");
+      if (fogCtx && pmCtx) {
+        // Padded mask: stretched copy for the off-screen border, exact
+        // copy where it's visible.
+        pmCtx.clearRect(0, 0, fw, fh);
+        pmCtx.drawImage(maskCanvas, 0, 0, fw, fh);
+        pmCtx.clearRect(FOG_PAD, FOG_PAD, w, h);
+        pmCtx.drawImage(maskCanvas, FOG_PAD, FOG_PAD);
+
+        fogCtx.globalCompositeOperation = "source-over";
+        fogCtx.clearRect(0, 0, fw, fh);
+        // Stretched video for the border, exact video in the visible area.
+        drawMirroredVideo(fogCtx, video, fw, fh);
+        fogCtx.save();
+        fogCtx.translate(FOG_PAD, FOG_PAD);
+        fogCtx.beginPath();
+        fogCtx.rect(0, 0, w, h);
+        fogCtx.clip();
+        drawMirroredVideo(fogCtx, video, w, h);
+        fogCtx.restore();
         fogCtx.globalCompositeOperation = "destination-in";
-        fogCtx.drawImage(maskCanvas, 0, 0, w, h);
+        fogCtx.drawImage(paddedMask, 0, 0);
         fogCtx.globalCompositeOperation = "source-over";
       }
 
       ctx.clearRect(0, 0, w, h);
-      drawMirroredVideo(ctx, video, w, h, 0);
-      ctx.drawImage(fogLayerCanvas, 0, 0, w, h);
+      drawMirroredVideo(ctx, video, w, h);
 
       animId = requestAnimationFrame(renderLoop);
     };
@@ -345,7 +405,7 @@ export function useSteamHandTracking(
     };
 
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 720, height: 560 } })
+      .getUserMedia(CAMERA_CONSTRAINTS)
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -377,6 +437,7 @@ export function useSteamHandTracking(
       video.onloadedmetadata = null;
       hands.close().catch(() => {});
       faceMesh.close().catch(() => {});
+      fogLayerCanvas.remove();
     };
   }, [videoRef, canvasRef]);
 

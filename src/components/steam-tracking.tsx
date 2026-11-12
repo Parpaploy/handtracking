@@ -49,7 +49,7 @@ export default function SteamTracking() {
         <video ref={videoRef} style={{ display: "none" }} playsInline />
         <canvas
           ref={canvasRef}
-          style={{ display: "block", width: 720, height: 560 }}
+          className="absolute inset-0 block h-full w-full"
         />
       </StageFrame>
     </GameShell>

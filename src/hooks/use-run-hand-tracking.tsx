@@ -5,6 +5,15 @@ import type {
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import {
+  CAMERA_CONSTRAINTS,
+  MAX_HANDS,
+  createHandIdTracker,
+  drawVideoCover,
+  mapToStage,
+  syncCanvasToDisplay,
+} from "../lib/stage";
+
 declare const Hands: HandsConstructor;
 
 const FINGER_LABELS = ["ซอล", "โด", "เร", "มี", "ฟา"];
@@ -131,7 +140,7 @@ export function useRunHandTracking(
   const runnerPosRef = useRef(0);
   const runnerSpeedRef = useRef(0);
   const runnerWonRef = useRef(false);
-  const lastWristYs = useRef<[number | null, number | null]>([null, null]);
+  const lastWristYs = useRef(new Map<number, number>());
 
   useEffect(() => {
     const video = videoRef.current;
@@ -141,8 +150,8 @@ export function useRunHandTracking(
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = 720;
-    canvas.height = 560;
+    syncCanvasToDisplay(canvas);
+    const assignIds = createHandIdTracker();
 
     let winResetId: ReturnType<typeof setTimeout> | undefined;
 
@@ -151,23 +160,26 @@ export function useRunHandTracking(
         `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: MAX_HANDS,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.5,
     });
 
     hands.onResults((results: HandResults) => {
+      syncCanvasToDisplay(canvas);
       const w = canvas.width;
       const h = canvas.height;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
 
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(results.image, -w, 0, w, h);
-      ctx.restore();
+      drawVideoCover(ctx, results.image, vw, vh, w, h);
 
-      const landmarks = results.multiHandLandmarks ?? [];
+      const landmarks = (results.multiHandLandmarks ?? []).map((lm) =>
+        mapToStage(lm, vw, vh, w, h),
+      );
       const handedness = results.multiHandedness ?? [];
+      const ids = assignIds(landmarks);
 
       const newPressed = new Set<string>();
       const fingerNames: string[] = [];
@@ -183,7 +195,7 @@ export function useRunHandTracking(
 
         const isLeft = label === "Left";
         const handColor = isLeft ? "orange" : "cyan";
-        const handIdx = isLeft ? 0 : 1;
+        const handId = ids[hi];
 
         drawHandSkeleton(ctx, m, w, h);
 
@@ -193,14 +205,14 @@ export function useRunHandTracking(
         if (fist) {
           fistCount++;
           const wy = m[0].y;
-          const prev = lastWristYs.current[handIdx];
-          if (prev !== null) {
+          const prev = lastWristYs.current.get(handId);
+          if (prev !== undefined) {
             const dy = Math.abs(wy - prev);
             totalShake += dy * 55;
           }
-          lastWristYs.current[handIdx] = wy;
+          lastWristYs.current.set(handId, wy);
         } else {
-          lastWristYs.current[handIdx] = null;
+          lastWristYs.current.delete(handId);
         }
 
         for (let fi = 0; fi < 5; fi++) {
@@ -219,11 +231,15 @@ export function useRunHandTracking(
           }
 
           if (pressed) {
-            const noteKey = `${label}_${fi}`;
+            const noteKey = `${ids[hi]}_${fi}`;
             newPressed.add(noteKey);
             fingerNames.push(FINGER_LABELS[fi]);
           }
         }
+      }
+
+      for (const id of lastWristYs.current.keys()) {
+        if (!ids.includes(id)) lastWristYs.current.delete(id);
       }
 
       if (!runnerWonRef.current) {
@@ -270,7 +286,7 @@ export function useRunHandTracking(
     let cancelled = false;
     let activeStream: MediaStream | null = null;
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480 } })
+      .getUserMedia(CAMERA_CONSTRAINTS)
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());

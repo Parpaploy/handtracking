@@ -46,9 +46,12 @@ export default function DrawHandTracking() {
           </button>
         </>
       }
+      hintAtBottom
+      headerShade={false}
       hint={
         <>
-          มือขวาจีบนิ้วโป้ง+ชี้ = วาดเส้น · มือซ้ายจีบ = ลบเส้น
+          ทุกมือวาดได้พร้อมกัน · จีบนิ้วโป้ง+ชี้ = วาด · ชี้นิ่งๆ บนสีหรือปากกาด้านบน (หรือจีบค้าง) =
+          เปลี่ยนของมือนั้น · กำมือ = ลบ
         </>
       }
     >
@@ -56,7 +59,7 @@ export default function DrawHandTracking() {
         <video ref={videoRef} style={{ display: "none" }} playsInline />
         <canvas
           ref={canvasRef}
-          style={{ display: "block", width: 720, height: 560 }}
+          className="absolute inset-0 block h-full w-full"
         />
       </StageFrame>
     </GameShell>

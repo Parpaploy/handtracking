@@ -6,6 +6,14 @@ import type {
   newHandsInstance,
 } from "../interfaces/hand-tracking.interface";
 import type { Landmark } from "@mediapipe/hands";
+import {
+  CAMERA_CONSTRAINTS,
+  MAX_HANDS,
+  createHandIdTracker,
+  drawVideoCover,
+  mapToStage,
+  syncCanvasToDisplay,
+} from "../lib/stage";
 
 declare const Hands: new (opts: {
   locateFile: (f: string) => string;
@@ -170,30 +178,23 @@ function isSolvable(arr: number[]): boolean {
   return inv % 2 === 0;
 }
 
-function captureFrame(
-  vid: HTMLVideoElement,
-  box: FrameBox,
-  canvasW: number,
-  canvasH: number,
-): HTMLCanvasElement {
+/** Crop the frame-box region out of the (mirrored, cover-fitted) camera
+ *  canvas so the puzzle image matches exactly what the player saw. */
+function captureFrame(camCanvas: HTMLCanvasElement, box: FrameBox) {
   const fc = document.createElement("canvas");
-  fc.width = Math.round(box.w);
-  fc.height = Math.round(box.h);
-  const fctx = fc.getContext("2d")!;
-  fctx.save();
-  fctx.scale(-1, 1);
-  fctx.drawImage(
-    vid,
-    ((canvasW - box.x - box.w) / canvasW) * vid.videoWidth,
-    (box.y / canvasH) * vid.videoHeight,
-    (box.w / canvasW) * vid.videoWidth,
-    (box.h / canvasH) * vid.videoHeight,
-    -fc.width,
+  fc.width = Math.max(1, Math.round(box.w));
+  fc.height = Math.max(1, Math.round(box.h));
+  fc.getContext("2d")!.drawImage(
+    camCanvas,
+    box.x,
+    box.y,
+    box.w,
+    box.h,
+    0,
     0,
     fc.width,
     fc.height,
   );
-  fctx.restore();
   return fc;
 }
 
@@ -250,15 +251,9 @@ export function usePuzzleHandTracking(
   }, []);
 
   const enterPuzzle = useCallback(() => {
-    const vid = videoRef.current;
     const camCanvas = camCanvasRef.current;
-    if (!vid || !camCanvas) return;
-    puzzleImgRef.current = captureFrame(
-      vid,
-      frameBoxRef.current,
-      camCanvas.width,
-      camCanvas.height,
-    );
+    if (!camCanvas) return;
+    puzzleImgRef.current = captureFrame(camCanvas, frameBoxRef.current);
     tilesRef.current = buildShuffledTiles();
     emptyIdxRef.current = tilesRef.current.indexOf(GRID * GRID - 1);
     moveCountRef.current = 0;
@@ -269,7 +264,7 @@ export function usePuzzleHandTracking(
     setMoveCount(0);
     setSolved(false);
     setHoldProgress(0);
-  }, [videoRef, camCanvasRef]);
+  }, [camCanvasRef]);
 
   const resetPuzzle = useCallback(() => {
     phaseRef.current = "resize";
@@ -469,6 +464,7 @@ export function usePuzzleHandTracking(
       handedness: HandResult[],
       W: number,
       H: number,
+      ids: number[],
     ) => {
       ovCtx.clearRect(0, 0, W, H);
 
@@ -480,12 +476,18 @@ export function usePuzzleHandTracking(
 
       const handsThisFrame = new Map<
         string,
-        { lm: Landmark[]; pinching: boolean; mid: { x: number; y: number } }
+        {
+          lm: Landmark[];
+          pinching: boolean;
+          mid: { x: number; y: number };
+          isLeft: boolean;
+        }
       >();
       for (let hi = 0; hi < landmarks.length; hi++) {
         const m = mirrorLandmarks(landmarks[hi]);
-        const key = handedness[hi]?.label ?? "Right";
+        const key = String(ids[hi]);
         handsThisFrame.set(key, {
+          isLeft: handedness[hi]?.label === "Left",
           lm: m,
           pinching: isPinching(m),
           mid: pinchMidpoint(m, W, H),
@@ -649,8 +651,7 @@ export function usePuzzleHandTracking(
       ovCtx.strokeRect(box.x, box.y, box.w, box.h);
 
       for (const [key, hand] of handsThisFrame) {
-        const { lm, pinching, mid } = hand;
-        const isLeft = key === "Left";
+        const { lm, pinching, mid, isLeft } = hand;
         const color = isLeft ? "rgba(255,140,0,0.7)" : "rgba(0,200,255,0.7)";
         const accent = isLeft ? "rgba(255,140,0,0.9)" : "rgba(0,200,255,0.9)";
         drawSkeleton(ovCtx, lm, W, H, color);
@@ -694,41 +695,61 @@ export function usePuzzleHandTracking(
     const ovCtx = overlay.getContext("2d");
     if (!camCtx || !ovCtx) return;
 
-    camCanvas.width = overlay.width = 720;
-    camCanvas.height = overlay.height = 560;
+    syncCanvasToDisplay(camCanvas);
+    syncCanvasToDisplay(overlay);
+    const assignIds = createHandIdTracker();
+    let boxPlaced = false;
 
     const hands = new Hands({
       locateFile: (f) => `/mediapipe/hands/${f}`,
     });
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: MAX_HANDS,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.5,
     });
 
     hands.onResults((results: HandResults) => {
+      syncCanvasToDisplay(camCanvas);
+      syncCanvasToDisplay(overlay);
       const W = camCanvas.width;
       const H = camCanvas.height;
-      camCtx.save();
-      camCtx.scale(-1, 1);
-      camCtx.drawImage(results.image, -W, 0, W, H);
-      camCtx.restore();
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
 
-      const lms = results.multiHandLandmarks ?? [];
+      // Centre the starting frame box on the full-screen stage.
+      if (!boxPlaced && phaseRef.current === "resize") {
+        boxPlaced = true;
+        const bw = Math.round(W * 0.4);
+        const bh = Math.round(H * 0.5);
+        updateFrameBox({
+          x: Math.round((W - bw) / 2),
+          y: Math.round((H - bh) / 2),
+          w: bw,
+          h: bh,
+        });
+      }
+
+      drawVideoCover(camCtx, results.image, vw, vh, W, H);
+
+      const lms = (results.multiHandLandmarks ?? []).map((lm) =>
+        mapToStage(lm, vw, vh, W, H),
+      );
       const hds = results.multiHandedness ?? [];
+      const ids = assignIds(lms);
       setHandCount(lms.length);
       setStatus(lms.length > 0 ? `${lms.length} มือ` : "ไม่พบมือ");
 
       if (phaseRef.current === "resize") drawResize(ovCtx, lms, hds, W, H);
-      else drawPuzzle(ovCtx, lms, hds, W, H);
+      else drawPuzzle(ovCtx, lms, hds, W, H, ids);
     });
 
     let animId: number;
     let cancelled = false;
     let activeStream: MediaStream | null = null;
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 720, height: 560 } })
+      .getUserMedia(CAMERA_CONSTRAINTS)
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -762,7 +783,14 @@ export function usePuzzleHandTracking(
       video.onloadedmetadata = null;
       hands.close().catch(() => {});
     };
-  }, [videoRef, camCanvasRef, overlayCanvasRef, drawResize, drawPuzzle]);
+  }, [
+    videoRef,
+    camCanvasRef,
+    overlayCanvasRef,
+    drawResize,
+    drawPuzzle,
+    updateFrameBox,
+  ]);
 
   return {
     phase,

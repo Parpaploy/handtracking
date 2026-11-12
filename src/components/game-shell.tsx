@@ -7,63 +7,89 @@ interface GameShellProps {
   tracking: boolean;
   statusText: string;
   toolbar?: ReactNode;
+  /** Extra floating content shown under the header (game status, notes…). */
+  topBar?: ReactNode;
   hint?: ReactNode;
+  /** Put the hint at the bottom instead of under the header. */
+  hintAtBottom?: boolean;
+  /** Dark gradient behind the header (off when the canvas draws UI there). */
+  headerShade?: boolean;
   children: ReactNode;
 }
 
+/**
+ * Full-screen game layout: the camera stage fills the whole viewport and
+ * the header / hint float above it.
+ */
 export default function GameShell({
   title,
   subtitle,
   tracking,
   statusText,
   toolbar,
+  topBar,
   hint,
+  hintAtBottom = false,
+  headerShade = true,
   children,
 }: GameShellProps) {
+  const hintEl = hint && (
+    <div className="rounded-full bg-ink-deep/60 px-4 py-1.5 text-center text-[13px] leading-relaxed text-paper/90 backdrop-blur-sm">
+      {hint}
+    </div>
+  );
+
   return (
-    <div className="flex min-h-screen flex-col bg-paper font-body text-ink">
-      <header className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-3 px-6 pt-6">
-        <Link
-          to="/"
-          className="group inline-flex items-center gap-2 rounded-full border border-stone-light bg-surface px-4 py-2 text-sm transition-colors hover:border-clay hover:text-clay-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay"
-        >
-          <span
-            aria-hidden
-            className="transition-transform duration-200 group-hover:-translate-x-0.5"
+    <div className="relative h-dvh w-full overflow-hidden bg-ink-deep font-body text-ink">
+      <main className="absolute inset-0">{children}</main>
+
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-2.5 ${headerShade ? "bg-linear-to-b from-ink-deep/55 to-transparent" : ""} px-4 pt-4 pb-10`}
+      >
+        <header className="pointer-events-auto flex w-full flex-wrap items-center gap-x-4 gap-y-3">
+          <Link
+            to="/"
+            className="group inline-flex items-center gap-2 rounded-full border border-stone-light bg-surface px-4 py-2 text-sm transition-colors hover:border-clay hover:text-clay-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay"
           >
-            ←
-          </span>
-          กลับ
-        </Link>
-
-        <div className="leading-tight">
-          <div className="font-display text-lg font-medium">{title}</div>
-          <div className="text-[10px] tracking-[0.25em] text-stone">
-            {subtitle}
-          </div>
-        </div>
-
-        <div className="ml-auto flex flex-wrap items-center gap-2.5">
-          {toolbar}
-          <div className="flex items-center gap-2 rounded-full border border-stone-light bg-surface px-3.5 py-2">
             <span
-              className={`h-2 w-2 rounded-full ${
-                tracking ? "animate-pulse-soft bg-clay" : "bg-stone-light"
-              }`}
-            />
-            <span className="text-xs text-ink-soft">{statusText}</span>
-          </div>
-        </div>
-      </header>
+              aria-hidden
+              className="transition-transform duration-200 group-hover:-translate-x-0.5"
+            >
+              ←
+            </span>
+            กลับ
+          </Link>
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-8">
-        {children}
-        {hint && (
-          <div className="text-center text-[13px] leading-relaxed text-ink-soft">
-            {hint}
+          <div className="leading-tight text-paper [text-shadow:0_1px_6px_rgba(0,0,0,0.55)]">
+            <div className="font-display text-lg font-medium">{title}</div>
+            <div className="text-[10px] tracking-[0.25em] text-paper/70">
+              {subtitle}
+            </div>
           </div>
-        )}
-      </main>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2.5">
+            {toolbar}
+            <div className="flex items-center gap-2 rounded-full border border-stone-light bg-surface px-3.5 py-2">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  tracking ? "animate-pulse-soft bg-clay" : "bg-stone-light"
+                }`}
+              />
+              <span className="text-xs text-ink-soft">{statusText}</span>
+            </div>
+          </div>
+        </header>
+
+        {topBar && <div className="pointer-events-auto">{topBar}</div>}
+
+        {!hintAtBottom && hintEl}
+      </div>
+
+      {hintAtBottom && hintEl && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-4">
+          {hintEl}
+        </div>
+      )}
     </div>
   );
 }
@@ -73,8 +99,7 @@ function friendlyCameraError(raw: string): { title: string; detail: string } {
   if (/NotAllowedError|Permission denied|denied/i.test(msg)) {
     return {
       title: "ยังไม่ได้อนุญาตให้ใช้กล้อง",
-      detail:
-        "กดไอคอนกล้องตรงแถบที่อยู่ของเบราว์เซอร์ เลือกอนุญาต แล้วกดลองใหม่",
+      detail: "กดไอคอนกล้องตรงแถบที่อยู่ของเบราว์เซอร์ เลือกอนุญาต แล้วกดลองใหม่",
     };
   }
   if (/NotFoundError|DevicesNotFound/i.test(msg)) {
@@ -92,7 +117,8 @@ function friendlyCameraError(raw: string): { title: string; detail: string } {
   return { title: "เปิดกล้องไม่ได้", detail: msg };
 }
 
-/** White craft-frame around the camera stage, with loading/error overlays. */
+/** Full-screen camera stage, with loading/error overlays. Children
+ *  (canvases) should fill it with `absolute inset-0 h-full w-full`. */
 export function StageFrame({
   children,
   loading = false,
@@ -105,8 +131,8 @@ export function StageFrame({
   const friendly = error ? friendlyCameraError(error) : null;
 
   return (
-    <div className="rounded-[24px] bg-surface p-2 ring-1 ring-stone-light shadow-[0_18px_40px_-24px_rgba(67,61,53,0.4)]">
-      <div className="relative overflow-hidden rounded-2xl bg-ink-deep">
+    <div className="absolute inset-0">
+      <div className="relative h-full w-full overflow-hidden bg-ink-deep">
         {children}
         {loading && !friendly && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
