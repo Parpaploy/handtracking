@@ -5,6 +5,4 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  // Hand detection runs in a module worker (src/lib/hand-worker.ts).
-  worker: { format: "es" },
 });
