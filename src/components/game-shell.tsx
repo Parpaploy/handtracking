@@ -130,6 +130,9 @@ function PerfHud() {
     <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-lg bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white">
       <div>fps {perfStats.fps.toFixed(0)}</div>
       <div>detect {perfStats.detectMs.toFixed(1)} ms</div>
+      {perfStats.worker && (
+        <div>มือ {perfStats.handRate.toFixed(0)} ครั้ง/วิ · เบื้องหลัง</div>
+      )}
       <div>
         {perfStats.delegate} · max {perfStats.numHands} มือ
         {perfStats.downgraded ? " (ลดอัตโนมัติ)" : ""}

@@ -63,7 +63,10 @@ const SOFTWARE_GL =
 /** Live numbers for the `?debug` overlay. */
 export const perfStats = {
   renderer: "-",
-  delegate: "-" as "GPU" | "CPU" | "-",
+  delegate: "-" as string,
+  /** Hand updates per second (separate from video fps when in a worker). */
+  handRate: 0,
+  worker: false,
   numHands: 0,
   detectMs: 0,
   fps: 0,
@@ -87,9 +90,197 @@ function setCamera(video: HTMLVideoElement, size: typeof CAMERA_HD) {
     .catch((err) => console.warn("เปลี่ยนความละเอียดกล้องไม่ได้:", err));
 }
 
+/** Safari / iPad (all iOS browsers are WebKit): keep the main-thread path
+ *  that is already tuned there; WebKit's worker GPU support is patchy. */
+const IS_WEBKIT =
+  typeof navigator !== "undefined" &&
+  ((/AppleWebKit/.test(navigator.userAgent) &&
+    !/Chrome|Chromium|Edg|Firefox/.test(navigator.userAgent)) ||
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+
+const CAN_USE_WORKER =
+  typeof Worker !== "undefined" &&
+  typeof OffscreenCanvas !== "undefined" &&
+  typeof createImageBitmap === "function" &&
+  !IS_WEBKIT;
+
+/**
+ * Hand detector for the games. Prefers a Web Worker so a slow detection
+ * never freezes the video (see hand-worker.ts); falls back to running on
+ * the page if the worker can't start.
+ */
 export async function createAdaptiveDetector(
   numHands: number,
 ): Promise<AdaptiveDetector> {
+  if (CAN_USE_WORKER) {
+    try {
+      return await createWorkerDetector(numHands);
+    } catch (err) {
+      console.warn("hand worker ใช้ไม่ได้ หามือบนหน้าเว็บแทน:", err);
+    }
+  }
+  return createMainThreadDetector(numHands);
+}
+
+async function createWorkerDetector(
+  numHands: number,
+): Promise<AdaptiveDetector> {
+  const renderer = webglRenderer();
+  perfStats.renderer = renderer;
+  const softwareGL = SOFTWARE_GL.test(renderer) || renderer === "no WebGL";
+
+  const worker = new Worker(new URL("./hand-worker.ts", import.meta.url), {
+    type: "module",
+  });
+  const delegate = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("worker timeout")), 20000);
+    worker.onmessage = (e) => {
+      if (e.data.type === "ready") {
+        clearTimeout(timer);
+        resolve(e.data.delegate);
+      } else if (e.data.type === "error") {
+        clearTimeout(timer);
+        reject(new Error(e.data.message));
+      }
+    };
+    worker.onerror = (e) => {
+      clearTimeout(timer);
+      reject(new Error(e.message || "worker error"));
+    };
+    worker.postMessage({
+      type: "init",
+      numHands,
+      delegate: softwareGL ? "CPU" : "GPU",
+    });
+  }).catch((err) => {
+    worker.terminate();
+    throw err;
+  });
+
+  perfStats.worker = true;
+  perfStats.delegate = delegate;
+  perfStats.numHands = numHands;
+  perfStats.downgraded = false;
+  perfStats.level = "ปกติ";
+  perfStats.fps = 0;
+  perfStats.handRate = 0;
+
+  let latest: HandLandmarkerResult | null = null;
+  let busySince = 0; // 0 = idle
+  let closed = false;
+  let current = numHands;
+  // Camera: stay small on tablets / without a GPU; otherwise raise to HD
+  // once detection has proven fast.
+  let hd: "wait" | "on" | "off" =
+    IS_LOW_POWER || delegate === "CPU" ? "off" : "wait";
+  let fastFrames = 0;
+  let slowFrames = 0;
+  let results = 0;
+  let lastResultAt = 0;
+  let lastRenderAt = 0;
+  let video: HTMLVideoElement | null = null;
+
+  const adapt = (avg: number) => {
+    if (results < WARMUP_FRAMES || !video) return;
+    if (hd === "wait") {
+      fastFrames = avg < FAST_DETECT_MS ? fastFrames + 1 : 0;
+      if (fastFrames >= FAST_FRAMES) {
+        hd = "on";
+        slowFrames = 0;
+        setCamera(video, CAMERA_HD);
+      }
+    }
+    slowFrames = avg > SLOW_DETECT_MS ? slowFrames + 1 : 0;
+    if (slowFrames < SLOW_FRAMES) return;
+    slowFrames = 0;
+    if (hd === "on") {
+      hd = "off";
+      setCamera(video, CAMERA_SMALL);
+      perfStats.downgraded = true;
+      perfStats.level = "ลดความละเอียดกล้อง";
+    } else if (current > 2) {
+      current = 2;
+      worker.postMessage({ type: "hands", n: 2 });
+      perfStats.numHands = 2;
+      perfStats.downgraded = true;
+      perfStats.level = "ลดจำนวนมือ";
+      det.onDowngrade?.(2);
+    }
+  };
+
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "result") {
+      busySince = 0;
+      results++;
+      latest = {
+        landmarks: m.landmarks,
+        worldLandmarks: m.worldLandmarks,
+        handedness: m.handedness,
+        handednesses: m.handedness,
+      } as HandLandmarkerResult;
+      perfStats.detectMs = m.avgMs;
+      perfStats.delegate = m.delegate;
+      const now = performance.now();
+      if (lastResultAt) {
+        const rate = 1000 / Math.max(1, now - lastResultAt);
+        perfStats.handRate = perfStats.handRate
+          ? perfStats.handRate * 0.9 + rate * 0.1
+          : rate;
+      }
+      lastResultAt = now;
+      adapt(m.avgMs);
+    } else if (m.type === "error") {
+      busySince = 0;
+      console.error("hand worker:", m.message);
+    }
+  };
+  worker.onerror = (e) => {
+    busySince = 0;
+    console.error("hand worker:", e.message);
+  };
+
+  const det: AdaptiveDetector = {
+    detect(v) {
+      video = v;
+      if (closed || !v.videoWidth) return latest;
+      const now = performance.now();
+      if (lastRenderAt) {
+        const fps = 1000 / Math.max(1, now - lastRenderAt);
+        perfStats.fps = perfStats.fps ? perfStats.fps * 0.9 + fps * 0.1 : fps;
+      }
+      lastRenderAt = now;
+      perfStats.camera = `${v.videoWidth}×${v.videoHeight}`;
+
+      // One frame in flight at a time; newer frames simply wait their turn.
+      // (Safety: if a reply never comes, try again after 2 s.)
+      if (!busySince || now - busySince > 2000) {
+        busySince = now;
+        createImageBitmap(v)
+          .then((bitmap) => {
+            if (closed) return bitmap.close();
+            worker.postMessage({ type: "frame", bitmap, ts: now }, [bitmap]);
+          })
+          .catch(() => {
+            busySince = 0;
+          });
+      }
+      return latest;
+    },
+    close() {
+      closed = true;
+      worker.terminate();
+    },
+  };
+  return det;
+}
+
+async function createMainThreadDetector(
+  numHands: number,
+): Promise<AdaptiveDetector> {
+  perfStats.worker = false;
+  perfStats.handRate = 0;
   const create = async (delegate: "GPU" | "CPU") =>
     HandLandmarker.createFromOptions(await getSharedFileset(), {
       baseOptions: { modelAssetPath: MODEL_PATH, delegate },
