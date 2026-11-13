@@ -9,17 +9,16 @@ export const IS_LOW_POWER =
     // iPadOS reports itself as a Mac; touch points give it away.
     (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
+/** Camera sizes. Every game starts small (as light as before the
+ *  full-screen stage) and the hand detector raises it to HD only once it
+ *  has measured that the machine is fast enough (see hand-detector.ts). */
+export const CAMERA_SMALL = { width: { ideal: 640 }, height: { ideal: 360 } };
+export const CAMERA_HD = { width: { ideal: 1280 }, height: { ideal: 720 } };
+
 /** Camera constraints shared by every game: 16:9 so the full-screen stage
- *  needs little cropping. HD on computers; on tablets a smaller frame,
- *  since every pixel is uploaded to the GPU and drawn each frame. */
+ *  needs little cropping. */
 export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
-  video: IS_LOW_POWER
-    ? {
-        width: { ideal: 640 },
-        height: { ideal: 360 },
-        frameRate: { ideal: 30 },
-      }
-    : { width: { ideal: 1280 }, height: { ideal: 720 } },
+  video: { ...CAMERA_SMALL, frameRate: { ideal: 30 } },
 };
 
 /** Max hands MediaPipe should look for. More than 2 so several people

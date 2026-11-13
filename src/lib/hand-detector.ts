@@ -3,6 +3,7 @@ import {
   type HandLandmarkerResult,
 } from "@mediapipe/tasks-vision";
 import { getSharedFileset } from "./mediapipe-fileset";
+import { CAMERA_HD, CAMERA_SMALL, IS_LOW_POWER } from "./stage";
 
 const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
 
@@ -13,10 +14,14 @@ type Pt = { x: number; y: number; z: number };
  * - HandLandmarker only runs its expensive palm *detector* while fewer
  *   hands are tracked than `numHands`; a high limit with few hands in view
  *   means re-detecting every frame.
+ * - The camera starts at 640×360 everywhere. Once detection has been
+ *   clearly fast for a while (and not on a tablet), it is raised to
+ *   1280×720 for a sharper picture; if HD then turns out slow, it goes
+ *   back down and stays down.
  * - On slow machines (e.g. Windows laptops on integrated graphics, or no
  *   GPU at all) the detector steps its workload down until it keeps up:
  *     1. hand limit 4 → 2            (drawing game only)
- *     2. camera 1280×720 → 640×360  (less to upload and draw each frame)
+ *     2. camera back to 640×360      (if it had been raised)
  *     3. detect every other frame, reusing the last hands in between, so
  *        the video itself still updates every frame and looks smooth.
  */
@@ -25,6 +30,8 @@ const SLOW_DETECT_MS = 24; // average detect time considered too slow
 // reflects the webcam (many give 15–30 fps, less in dim light), not speed.
 const WARMUP_FRAMES = 60; // first GPU frames compile shaders and are slow
 const SLOW_FRAMES = 40; // sustained this many frames before stepping down
+const FAST_DETECT_MS = 14; // average detect time fast enough to try HD
+const FAST_FRAMES = 60; // …sustained this many frames (≈2 s)
 
 type Level = 0 | 1 | 2 | 3;
 const LEVEL_LABEL = ["ปกติ", "ลดจำนวนมือ", "ลดความละเอียดกล้อง", "จับมือเฟรมเว้นเฟรม"];
@@ -73,11 +80,11 @@ export interface AdaptiveDetector {
   onDowngrade?: (numHands: number) => void;
 }
 
-function lowerCamera(video: HTMLVideoElement) {
+function setCamera(video: HTMLVideoElement, size: typeof CAMERA_HD) {
   const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
   track
-    ?.applyConstraints({ width: { ideal: 640 }, height: { ideal: 360 } })
-    .catch((err) => console.warn("ลดความละเอียดกล้องไม่ได้:", err));
+    ?.applyConstraints(size)
+    .catch((err) => console.warn("เปลี่ยนความละเอียดกล้องไม่ได้:", err));
 }
 
 export async function createAdaptiveDetector(
@@ -125,6 +132,9 @@ export async function createAdaptiveDetector(
   // (Only when CPU was forced by a failure/software GL; a CPU picked by the
   // GPU-vs-CPU comparison below is already fast enough.)
   let pendingCpuStart = delegate === "CPU";
+  // HD camera: "wait" until proven fast, "on" once raised, "off" for good.
+  let hd: "wait" | "on" | "off" = IS_LOW_POWER ? "off" : "wait";
+  let fastFrames = 0;
 
   // GPU-vs-CPU comparison state.
   let cpuTried = delegate === "CPU";
@@ -152,7 +162,8 @@ export async function createAdaptiveDetector(
       landmarker.setOptions({ numHands: 2 }).catch(console.error);
       det.onDowngrade?.(2);
     }
-    if (next === 2) lowerCamera(video);
+    if (next >= 2 && hd === "on") setCamera(video, CAMERA_SMALL);
+    if (next >= 2) hd = "off";
   };
 
   const det: AdaptiveDetector = {
@@ -237,10 +248,28 @@ export async function createAdaptiveDetector(
           .catch((err) => console.warn("สร้าง CPU detector ไม่ได้:", err));
       }
 
+      const warm = detectCount > WARMUP_FRAMES;
+
+      // Fast for a while at the small size: switch the camera to HD.
+      if (hd === "wait" && level === 0 && warm) {
+        fastFrames = avgMs < FAST_DETECT_MS ? fastFrames + 1 : 0;
+        if (fastFrames >= FAST_FRAMES) {
+          hd = "on";
+          slowFrames = 0;
+          setCamera(video, CAMERA_HD);
+        }
+      }
+
       if (level < 3) {
-        const slow = detectCount > WARMUP_FRAMES && avgMs > SLOW_DETECT_MS;
+        const slow = warm && avgMs > SLOW_DETECT_MS;
         slowFrames = slow ? slowFrames + 1 : 0;
-        if (slowFrames >= SLOW_FRAMES) {
+        if (slowFrames >= SLOW_FRAMES && hd === "on") {
+          // HD was too much after all: back to small, keep everything else.
+          slowFrames = 0;
+          avgMs = 0;
+          hd = "off";
+          setCamera(video, CAMERA_SMALL);
+        } else if (slowFrames >= SLOW_FRAMES) {
           slowFrames = 0;
           avgMs = 0;
           // Skip the hand-limit step when there is nothing to lower.
