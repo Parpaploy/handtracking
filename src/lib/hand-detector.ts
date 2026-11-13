@@ -21,7 +21,9 @@ type Pt = { x: number; y: number; z: number };
  *        the video itself still updates every frame and looks smooth.
  */
 const SLOW_DETECT_MS = 24; // average detect time considered too slow
-const SLOW_FPS = 22; // …or frame rate below this
+// Not frame rate: detection only runs on new camera frames, so fps mostly
+// reflects the webcam (many give 15–30 fps, less in dim light), not speed.
+const WARMUP_FRAMES = 60; // first GPU frames compile shaders and are slow
 const SLOW_FRAMES = 40; // sustained this many frames before stepping down
 
 type Level = 0 | 1 | 2 | 3;
@@ -236,7 +238,7 @@ export async function createAdaptiveDetector(
       }
 
       if (level < 3) {
-        const slow = avgMs > SLOW_DETECT_MS || perfStats.fps < SLOW_FPS;
+        const slow = detectCount > WARMUP_FRAMES && avgMs > SLOW_DETECT_MS;
         slowFrames = slow ? slowFrames + 1 : 0;
         if (slowFrames >= SLOW_FRAMES) {
           slowFrames = 0;
