@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { perfStats } from "../lib/hand-detector";
 import { Link } from "react-router-dom";
 
 interface GameShellProps {
@@ -42,6 +43,7 @@ export default function GameShell({
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-ink-deep font-body text-ink">
       <main className="absolute inset-0">{children}</main>
+      {SHOW_PERF && <PerfHud />}
 
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-2.5 ${headerShade ? "bg-linear-to-b from-ink-deep/55 to-transparent" : ""} px-4 pt-4 pb-10`}
@@ -116,6 +118,29 @@ function friendlyCameraError(raw: string): { title: string; detail: string } {
   }
   return { title: "เปิดกล้องไม่ได้", detail: msg };
 }
+
+/** `?debug` in the URL: live speed numbers in the corner. */
+function PerfHud() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-lg bg-black/70 px-3 py-2 font-mono text-[11px] leading-5 text-white">
+      <div>fps {perfStats.fps.toFixed(0)}</div>
+      <div>detect {perfStats.detectMs.toFixed(1)} ms</div>
+      <div>
+        {perfStats.delegate} · max {perfStats.numHands} มือ
+        {perfStats.downgraded ? " (ลดอัตโนมัติ)" : ""}
+      </div>
+    </div>
+  );
+}
+
+const SHOW_PERF =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("debug");
 
 /** Full-screen camera stage, with loading/error overlays. Children
  *  (canvases) should fill it with `absolute inset-0 h-full w-full`. */

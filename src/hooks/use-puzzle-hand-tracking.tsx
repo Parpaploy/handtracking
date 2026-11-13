@@ -696,7 +696,8 @@ export function usePuzzleHandTracking(
     const assignIds = createHandIdTracker();
     let boxPlaced = false;
 
-    const hands = createTasksHands();
+    // Two hands: a higher limit makes the model re-detect every frame.
+    const hands = createTasksHands(2);
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(camCanvas);

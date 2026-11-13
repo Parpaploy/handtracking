@@ -153,7 +153,8 @@ export function useRunHandTracking(
 
     let winResetId: ReturnType<typeof setTimeout> | undefined;
 
-    const hands = createTasksHands();
+    // Two hands: a higher limit makes the model re-detect every frame.
+    const hands = createTasksHands(2);
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(canvas);

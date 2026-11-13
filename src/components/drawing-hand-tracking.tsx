@@ -5,10 +5,8 @@ import GameShell, { StageFrame } from "./game-shell";
 export default function DrawHandTracking() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { status, handCount, drawMode, clearDrawing } = useDrawingHandTracking(
-    videoRef,
-    canvasRef,
-  );
+  const { status, handCount, drawMode, clearDrawing, maxHands } =
+    useDrawingHandTracking(videoRef, canvasRef);
 
   const tracking = status === "tracking...";
   const cameraError = status.startsWith("❌") ? status : null;
@@ -30,7 +28,11 @@ export default function DrawHandTracking() {
       title="วาดรูป"
       subtitle="DRAWING"
       tracking={tracking}
-      statusText={tracking ? `${handCount} มือ` : status}
+      statusText={
+        tracking
+          ? `${handCount}/${maxHands} มือ${maxHands < 4 ? " · เครื่องช้า ลดเหลือ 2" : ""}`
+          : status
+      }
       toolbar={
         <>
           <span

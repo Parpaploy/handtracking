@@ -188,7 +188,8 @@ export function useSteamHandTracking(
 
     const assignIds = createHandIdTracker();
 
-    const hands = createTasksHands();
+    // Two hands: a higher limit makes the model re-detect every frame.
+    const hands = createTasksHands(2);
     hands.onResults((results: HandResultsLocal) => {
       const w = canvas.width;
       const h = canvas.height;

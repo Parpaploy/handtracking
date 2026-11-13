@@ -1,33 +1,42 @@
-import { HandLandmarker } from "@mediapipe/tasks-vision";
+import {
+  HandLandmarker,
+  type HandLandmarkerResult,
+} from "@mediapipe/tasks-vision";
 import { getSharedFileset } from "./mediapipe-fileset";
-import { MAX_HANDS } from "./stage";
 
 const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
 
 type Pt = { x: number; y: number; z: number };
 
-export interface TasksHandResults {
-  image: HTMLVideoElement;
-  multiHandLandmarks: Pt[][];
-  multiHandedness: { label: "Left" | "Right"; score: number; index: number }[];
-  multiHandWorldLandmarks: Pt[][];
+/**
+ * Why the hand limit matters for speed: HandLandmarker only runs its
+ * expensive palm *detector* while fewer hands are tracked than `numHands`.
+ * With numHands = 4 and 1–3 hands in view, it re-detects every frame,
+ * which makes weaker computers lag. Games that only need two hands ask for
+ * two; the drawing game asks for four but drops to two if it's too slow.
+ */
+const SLOW_DETECT_MS = 28; // average detect time considered too slow
+const SLOW_FRAMES = 45; // …sustained this many frames before downgrading
+
+/** Live numbers for the `?debug` overlay. */
+export const perfStats = {
+  delegate: "-" as "GPU" | "CPU" | "-",
+  numHands: 0,
+  detectMs: 0,
+  fps: 0,
+  downgraded: false,
+};
+
+export interface AdaptiveDetector {
+  detect(video: HTMLVideoElement): HandLandmarkerResult | null;
+  close(): void;
+  /** Called once if the hand limit is lowered for speed. */
+  onDowngrade?: (numHands: number) => void;
 }
 
-/**
- * Drop-in replacement for the legacy `new Hands(...)` object from
- * @mediapipe/hands, backed by the newer tasks-vision HandLandmarker on the
- * GPU. The legacy solution slows down sharply per extra hand and is very
- * laggy on tablets; this one is much lighter.
- *
- * Same shape: setOptions / onResults / send / close, with results in the
- * legacy format (multiHandLandmarks, multiHandedness with `label`).
- */
-export function createTasksHands(numHands = MAX_HANDS) {
-  let callback: ((r: TasksHandResults) => void) | null = null;
-  let landmarker: HandLandmarker | null = null;
-  let closed = false;
-  let lastTs = 0;
-
+export async function createAdaptiveDetector(
+  numHands: number,
+): Promise<AdaptiveDetector> {
   const create = async (delegate: "GPU" | "CPU") =>
     HandLandmarker.createFromOptions(await getSharedFileset(), {
       baseOptions: { modelAssetPath: MODEL_PATH, delegate },
@@ -38,17 +47,85 @@ export function createTasksHands(numHands = MAX_HANDS) {
       minTrackingConfidence: 0.5,
     });
 
-  const ready = (async () => {
-    let lm: HandLandmarker;
-    try {
-      lm = await create("GPU");
-    } catch (err) {
-      console.warn("GPU delegate ใช้ไม่ได้ ใช้ CPU แทน:", err);
-      lm = await create("CPU");
-    }
-    if (closed) lm.close();
-    else landmarker = lm;
-  })();
+  let landmarker: HandLandmarker;
+  try {
+    landmarker = await create("GPU");
+    perfStats.delegate = "GPU";
+  } catch (err) {
+    console.warn("GPU delegate ใช้ไม่ได้ ใช้ CPU แทน:", err);
+    landmarker = await create("CPU");
+    perfStats.delegate = "CPU";
+  }
+  perfStats.numHands = numHands;
+  perfStats.downgraded = false;
+
+  let lastTs = 0;
+  let lastFrameAt = 0;
+  let avgMs = 0;
+  let slowFrames = 0;
+  let current = numHands;
+  let closed = false;
+
+  const det: AdaptiveDetector = {
+    detect(video) {
+      if (closed || !video.videoWidth) return null;
+      const t0 = performance.now();
+      const ts = Math.max(lastTs + 1, Math.round(t0));
+      lastTs = ts;
+      const result = landmarker.detectForVideo(video, ts);
+      const ms = performance.now() - t0;
+
+      avgMs = avgMs ? avgMs * 0.9 + ms * 0.1 : ms;
+      if (lastFrameAt) {
+        const fps = 1000 / Math.max(1, t0 - lastFrameAt);
+        perfStats.fps = perfStats.fps ? perfStats.fps * 0.9 + fps * 0.1 : fps;
+      }
+      lastFrameAt = t0;
+      perfStats.detectMs = avgMs;
+
+      if (current > 2) {
+        slowFrames = avgMs > SLOW_DETECT_MS ? slowFrames + 1 : 0;
+        if (slowFrames >= SLOW_FRAMES) {
+          current = 2;
+          slowFrames = 0;
+          perfStats.numHands = 2;
+          perfStats.downgraded = true;
+          landmarker.setOptions({ numHands: 2 }).catch(console.error);
+          det.onDowngrade?.(2);
+        }
+      }
+      return result;
+    },
+    close() {
+      closed = true;
+      landmarker.close();
+    },
+  };
+  return det;
+}
+
+export interface TasksHandResults {
+  image: HTMLVideoElement;
+  multiHandLandmarks: Pt[][];
+  multiHandedness: { label: "Left" | "Right"; score: number; index: number }[];
+  multiHandWorldLandmarks: Pt[][];
+}
+
+/**
+ * Drop-in replacement for the legacy `new Hands(...)` object from
+ * @mediapipe/hands, backed by tasks-vision HandLandmarker on the GPU.
+ * Same shape: setOptions / onResults / send / close, results in the legacy
+ * format (multiHandLandmarks, multiHandedness with `label`).
+ */
+export function createTasksHands(numHands = 2) {
+  let callback: ((r: TasksHandResults) => void) | null = null;
+  let detector: AdaptiveDetector | null = null;
+  let closed = false;
+
+  const ready = createAdaptiveDetector(numHands).then((d) => {
+    if (closed) d.close();
+    else detector = d;
+  });
 
   return {
     /** Kept for API compatibility; options are fixed at creation. */
@@ -60,10 +137,9 @@ export function createTasksHands(numHands = MAX_HANDS) {
     },
     async send({ image }: { image: HTMLVideoElement }) {
       await ready;
-      if (!landmarker || closed || !image.videoWidth) return;
-      const ts = Math.max(lastTs + 1, Math.round(performance.now()));
-      lastTs = ts;
-      const r = landmarker.detectForVideo(image, ts);
+      if (!detector || closed) return;
+      const r = detector.detect(image);
+      if (!r) return;
       callback?.({
         image,
         multiHandLandmarks: r.landmarks as Pt[][],
@@ -78,8 +154,8 @@ export function createTasksHands(numHands = MAX_HANDS) {
     },
     async close() {
       closed = true;
-      landmarker?.close();
-      landmarker = null;
+      detector?.close();
+      detector = null;
     },
   };
 }

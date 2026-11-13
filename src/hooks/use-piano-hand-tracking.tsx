@@ -198,7 +198,8 @@ export function usePianoHandTracking(
     syncCanvasToDisplay(canvas);
     const assignIds = createHandIdTracker();
 
-    const hands = createTasksHands();
+    // Two hands: a higher limit makes the model re-detect every frame.
+    const hands = createTasksHands(2);
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(canvas);

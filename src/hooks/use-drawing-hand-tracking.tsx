@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { HandLandmarker } from "@mediapipe/tasks-vision";
-import { getSharedFileset } from "../lib/mediapipe-fileset";
+import {
+  createAdaptiveDetector,
+  type AdaptiveDetector,
+} from "../lib/hand-detector";
 import {
   createLandmarkFilter,
   filterLandmarks,
@@ -19,8 +21,6 @@ import {
   syncCanvasToDisplay,
 } from "../lib/stage";
 import type { Landmark, DrawMode } from "../interfaces/hand-tracking.interface";
-
-const MODEL_PATH = "/mediapipe/hand_landmarker/hand_landmarker.task";
 
 const CONNECTIONS = [
   [0, 1],
@@ -718,6 +718,8 @@ export function useDrawingHandTracking(
   const [handCount, setHandCount] = useState(0);
   const [drawMode, setDrawMode] = useState<DrawMode>("idle");
   const [strokeColor, setStrokeColor] = useState("#000000");
+  /** Hand limit in use (drops to 2 on computers too slow for 4). */
+  const [maxHands, setMaxHands] = useState(MAX_HANDS);
 
   const drawingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokeColorRef = useRef("#000000");
@@ -749,22 +751,12 @@ export function useDrawingHandTracking(
     let lastCount = -1;
     let lastMode: DrawMode | null = null;
 
-    let landmarker: HandLandmarker | null = null;
+    let landmarker: AdaptiveDetector | null = null;
     let cancelled = false;
     let animId = 0;
     let activeStream: MediaStream | null = null;
     let lastVideoTime = -1;
     let lastTs = 0;
-
-    const createLandmarker = async (delegate: "GPU" | "CPU") =>
-      HandLandmarker.createFromOptions(await getSharedFileset(), {
-        baseOptions: { modelAssetPath: MODEL_PATH, delegate },
-        runningMode: "VIDEO",
-        numHands: MAX_HANDS,
-        minHandDetectionConfidence: 0.5,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
 
     const applyItem = (st: HandDrawState, item: PaletteItem) => {
       if (item.kind === "color") {
@@ -1123,7 +1115,11 @@ export function useDrawingHandTracking(
         const dt = Math.min(Math.max((ts - lastTs) / 1000, 1 / 240), 1 / 5);
         lastTs = ts;
         try {
-          const result = landmarker.detectForVideo(video, ts);
+          const result = landmarker.detect(video);
+          if (!result) {
+            animId = requestAnimationFrame(loop);
+            return;
+          }
           processFrame(
             result.landmarks as Landmark[][],
             result.worldLandmarks as P3[][],
@@ -1139,12 +1135,8 @@ export function useDrawingHandTracking(
     };
 
     const start = async () => {
-      try {
-        landmarker = await createLandmarker("GPU");
-      } catch (err) {
-        console.warn("GPU delegate ใช้ไม่ได้ ใช้ CPU แทน:", err);
-        landmarker = await createLandmarker("CPU");
-      }
+      landmarker = await createAdaptiveDetector(MAX_HANDS);
+      landmarker.onDowngrade = (n) => setMaxHands(n);
       if (cancelled) {
         landmarker.close();
         landmarker = null;
@@ -1196,5 +1188,6 @@ export function useDrawingHandTracking(
     clearDrawing,
     strokeColor,
     setStrokeColor,
+    maxHands,
   };
 }
