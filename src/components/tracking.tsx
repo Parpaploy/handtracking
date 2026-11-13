@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { UiCorner, useHideUi } from "./hide-ui";
 import { useTracking } from "../hooks/use-tracking";
 
 export default function Tracking() {
@@ -9,9 +10,15 @@ export default function Tracking() {
     canvasRef,
   );
 
+  const [uiHidden, setUiHidden] = useHideUi();
+
   return (
     <div className="w-full h-screen bg-black flex flex-col">
-      <div className="absolute top-4 left-4 z-10 text-white text-sm space-y-1">
+      <UiCorner hidden={uiHidden} setHidden={setUiHidden} />
+      <div
+        hidden={uiHidden}
+        className="absolute top-4 left-4 z-10 text-white text-sm space-y-1"
+      >
         <p>สถานะ: {status}</p>
         <p>มือที่พบ: {handCount} มือ</p>
         <p>ใบหน้าที่พบ: {faceCount} ใบหน้า</p>

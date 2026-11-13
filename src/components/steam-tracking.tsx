@@ -43,7 +43,9 @@ export default function SteamTracking() {
           </button>
         </>
       }
-      hint={<>เอานิ้วชี้ปาดจอให้ชัด · อ้าปากให้ไอน้ำจับฝ้าอีกครั้ง</>}
+      hint={
+        <>จีบนิ้วโป้ง+ชี้แล้วลาก = เขียน · กำมือแล้วถู = เช็ดวงกว้าง · อ้าปากค้าง = เป่าไอน้ำ</>
+      }
     >
       <StageFrame loading={!tracking && !cameraError} error={cameraError}>
         <video ref={videoRef} style={{ display: "none" }} playsInline />

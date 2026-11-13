@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { perfStats } from "../lib/hand-detector";
 import { Link } from "react-router-dom";
+import { HideUiButton, ShowUiButton, useHideUi } from "./hide-ui";
 
 interface GameShellProps {
   title: string;
@@ -34,6 +35,7 @@ export default function GameShell({
   headerShade = true,
   children,
 }: GameShellProps) {
+  const [uiHidden, setUiHidden] = useHideUi();
   const hintEl = hint && (
     <div className="rounded-full bg-ink-deep/60 px-4 py-1.5 text-center text-[13px] leading-relaxed text-paper/90 backdrop-blur-sm">
       {hint}
@@ -45,7 +47,10 @@ export default function GameShell({
       <main className="absolute inset-0">{children}</main>
       {SHOW_PERF && <PerfHud />}
 
+      {uiHidden && <ShowUiButton onClick={() => setUiHidden(false)} />}
+
       <div
+        hidden={uiHidden}
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-2.5 ${headerShade ? "bg-linear-to-b from-ink-deep/55 to-transparent" : ""} px-4 pt-4 pb-10`}
       >
         <header className="pointer-events-auto flex w-full flex-wrap items-center gap-x-4 gap-y-3">
@@ -71,6 +76,7 @@ export default function GameShell({
 
           <div className="ml-auto flex flex-wrap items-center gap-2.5">
             {toolbar}
+            <HideUiButton onClick={() => setUiHidden(true)} />
             <div className="flex items-center gap-2 rounded-full border border-stone-light bg-surface px-3.5 py-2">
               <span
                 className={`h-2 w-2 rounded-full ${
@@ -87,7 +93,7 @@ export default function GameShell({
         {!hintAtBottom && hintEl}
       </div>
 
-      {hintAtBottom && hintEl && (
+      {hintAtBottom && hintEl && !uiHidden && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-4">
           {hintEl}
         </div>

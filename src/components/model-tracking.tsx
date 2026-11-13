@@ -1,6 +1,8 @@
 import { Suspense, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, OrbitControls } from "@react-three/drei";
+import { Leva } from "leva";
+import { UiCorner, useHideUi } from "./hide-ui";
 import { DEFAULT_ONE_EURO } from "../lib/one-euro";
 import { useWebcam } from "../hooks/use-webcam";
 import { AvatarFace } from "../components/avatar-face";
@@ -12,6 +14,7 @@ import { MODELS } from "../constants/model.const";
 import type { EnvPreset } from "../interfaces/model.interface";
 
 export default function ModelTracking() {
+  const [uiHidden, setUiHidden] = useHideUi();
   const videoRef = useRef<HTMLVideoElement>(null);
   useWebcam(videoRef);
 
@@ -185,7 +188,16 @@ export default function ModelTracking() {
       className="w-full h-screen bg-cover bg-center bg-no-repeat flex flex-col"
       style={{ backgroundImage: "url('/chihiro007.jpg')" }}
     >
-      <div className="absolute top-4 left-4 z-10 text-white text-sm space-y-1">
+      <UiCorner
+        hidden={uiHidden}
+        setHidden={setUiHidden}
+        className="bottom-4 left-4"
+      />
+      <Leva hidden={uiHidden} />
+      <div
+        hidden={uiHidden}
+        className="absolute top-4 left-4 z-10 text-white text-sm space-y-1"
+      >
         <p>ใบหน้า: {faceStatus}</p>
         <p>ร่างกาย: {bodyStatus}</p>
         <p>นิ้ว: {fingerStatus}</p>
@@ -196,7 +208,7 @@ export default function ModelTracking() {
         autoPlay
         playsInline
         muted
-        className="absolute bottom-4 right-4 w-40 h-auto rounded-lg border border-white/30 z-10"
+        className={`absolute bottom-4 right-4 w-40 h-auto rounded-lg border border-white/30 z-10 ${uiHidden ? "invisible" : ""}`}
         style={{ transform: "scaleX(-1)" }}
       />
 
