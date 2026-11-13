@@ -56,6 +56,14 @@ const FINGERTIPS = [4, 8, 12, 16, 20];
 // Pinch: thumb tip ↔ index tip gap. Starts below ON, holds until above OFF.
 const PINCH_ON = 0.45;
 const PINCH_OFF = 0.75;
+// As soon as the fingers start to part, stop adding to the line: while they
+// separate, their midpoint slides and the line would follow the hand
+// opening. "Parting" = pinch opened LOOSEN_BY past the tightest it has been
+// in this stroke (so a naturally loose pinch still draws), and at least
+// LOOSEN_MIN. The stroke itself stays open until PINCH_OFF +
+// RELEASE_GRACE_MS, so a brief wobble doesn't break it.
+const LOOSEN_BY = 0.14;
+const LOOSEN_MIN = 0.52;
 // Curl: fingertip ↔ palm centre. A folded finger tucks its tip into the
 // palm (~0.35–0.5); a pinching index sits out in front (~0.7+).
 const CURLED_BELOW = 0.55;
@@ -384,6 +392,8 @@ type HandDrawState = {
   /** Timestamps (ms) when the current condition started, or null. */
   pinchSince: number | null;
   releaseSince: number | null;
+  /** Tightest pinch seen in the current stroke (see LOOSEN_BY). */
+  tightest: number;
   fistSince: number | null;
   openSince: number | null;
   cooldownUntil: number;
@@ -853,6 +863,7 @@ export function useDrawingHandTracking(
             pending: [],
             pinchSince: null,
             releaseSince: null,
+            tightest: 1,
             fistSince: null,
             openSince: null,
             cooldownUntil: 0,
@@ -1003,13 +1014,15 @@ export function useDrawingHandTracking(
               st.mode = "draw";
               st.points = [];
               st.pending = [];
+              st.tightest = f.pinch;
             }
           }
           if (
             st.releaseSince !== null &&
             now - st.releaseSince > RELEASE_GRACE_MS
           ) {
-            endStroke(dctx, st, !fistRaw);
+            // Drop the queued tail: it's the fingers opening, not drawing.
+            endStroke(dctx, st, false);
             st.mode = "idle";
             st.pinchSince = null;
             st.releaseSince = null;
@@ -1030,6 +1043,7 @@ export function useDrawingHandTracking(
               st.mode = "draw";
               st.points = [];
               st.pending = [];
+              st.tightest = f.pinch;
             }
           }
         }
@@ -1058,7 +1072,18 @@ export function useDrawingHandTracking(
           ctx.stroke();
         } else if (st.mode === "draw" && st.releaseSince === null) {
           anyDraw = true;
-          st.pending.push({ x: midX, y: midY });
+          st.tightest = Math.min(st.tightest, f.pinch);
+          const loosenAt = Math.min(
+            PINCH_OFF - 0.05,
+            Math.max(LOOSEN_MIN, st.tightest + LOOSEN_BY),
+          );
+          if (f.pinch > loosenAt) {
+            // Fingers parting: the last few queued points already include
+            // the start of the opening, so drop them and add nothing.
+            st.pending = [];
+          } else {
+            st.pending.push({ x: midX, y: midY });
+          }
           while (st.pending.length > STROKE_DELAY_FRAMES) {
             commitPoint(dctx, st, st.pending.shift()!);
           }
