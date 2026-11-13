@@ -40,6 +40,8 @@ export interface HandResults {
   image: CanvasImageSource;
   multiHandLandmarks?: Landmark[][];
   multiHandedness?: Handedness[];
+  /** Metric 3D landmarks (same order), when the detector provides them. */
+  multiHandWorldLandmarks?: Landmark[][];
 }
 
 export interface Handedness {

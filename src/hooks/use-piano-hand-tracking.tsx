@@ -13,14 +13,18 @@ import {
   syncCanvasToDisplay,
 } from "../lib/stage";
 
-
 const FINGER_LABELS = ["ซอล", "โด", "เร", "มี", "ฟา"];
 const FINGER_NOTES = [[67], [60], [62], [64], [65]];
 
 const FINGERTIP_IDX = [4, 8, 12, 16, 20];
 const FINGERBASE_IDX = [2, 6, 10, 14, 18];
 const PRESS_THRESHOLD = 0.045;
-const THUMB_PRESS_THRESHOLD = 0.04;
+// Thumbs can't bend down like the other fingers, so a thumb "press" is
+// folding it in across the palm: its tip comes close to the middle/ring
+// knuckles. Measured in 3D, relative to palm length, so it works whichever
+// way the hand is turned. Hysteresis keeps the note from flickering.
+const THUMB_PRESS_BELOW = 0.55;
+const THUMB_RELEASE_ABOVE = 0.66;
 
 const CONNECTIONS = [
   [0, 1],
@@ -49,6 +53,24 @@ const CONNECTIONS = [
 ];
 
 let sharedAudioCtx: AudioContext | null = null;
+
+/** Thumb tip's distance to the middle/ring knuckles ÷ palm length:
+ *  ~1 with the thumb out, ~0.3 folded into the palm. `pixels` scales
+ *  normalised 2D landmarks to the stage when 3D ones aren't available. */
+function thumbFold(lm: Landmark[], pixels: boolean, w: number, h: number) {
+  const sx = pixels ? w : 1;
+  const sy = pixels ? h : 1;
+  const sz = pixels ? 0 : 1;
+  const d = (a: Landmark, b: Landmark) =>
+    Math.hypot(
+      (a.x - b.x) * sx,
+      (a.y - b.y) * sy,
+      ((a.z ?? 0) - (b.z ?? 0)) * sz,
+    );
+  const palm = d(lm[0], lm[9]) || 1;
+  return Math.min(d(lm[4], lm[9]), d(lm[4], lm[13])) / palm;
+}
+
 function getAudioCtx() {
   if (!sharedAudioCtx) sharedAudioCtx = new AudioContext();
   return sharedAudioCtx;
@@ -226,6 +248,7 @@ export function usePianoHandTracking(
         const m: Landmark[] = lm.map((p) => ({ ...p, x: 1 - p.x }));
 
         const isLeft = label === "Left";
+        const world = results.multiHandWorldLandmarks?.[hi];
         const handColor = isLeft ? "orange" : "cyan";
         const skeletonColor = isLeft
           ? "rgba(255,140,0,0.5)"
@@ -242,9 +265,10 @@ export function usePianoHandTracking(
 
           let pressed: boolean;
           if (fi === 0) {
-            pressed = isLeft
-              ? tip.x - base.x > THUMB_PRESS_THRESHOLD
-              : base.x - tip.x > THUMB_PRESS_THRESHOLD;
+            const wasDown = prevPressed.current.has(`${ids[hi]}_0`);
+            const fold = thumbFold(world ?? lm, !world, w, h);
+            pressed =
+              fold < (wasDown ? THUMB_RELEASE_ABOVE : THUMB_PRESS_BELOW);
           } else {
             pressed = tip.y - base.y > PRESS_THRESHOLD;
           }

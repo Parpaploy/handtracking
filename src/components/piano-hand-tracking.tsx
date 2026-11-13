@@ -37,7 +37,7 @@ export default function PianoHandTracking() {
           </button>
         </div>
       }
-      hint="ทุกมือในกล้องเล่นได้ · โค้งนิ้วลงเพื่อกดโน้ต"
+      hint="ทุกมือในกล้องเล่นได้ · โค้งนิ้วลงเพื่อกดโน้ต · นิ้วโป้งพับเข้าหาฝ่ามือ"
       topBar={
         <div className="flex min-h-11 flex-wrap items-center justify-center gap-2">
           {activeNoteNames.length === 0 ? (
