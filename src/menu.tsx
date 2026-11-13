@@ -263,6 +263,33 @@ function GlyphSteam() {
   );
 }
 
+function GlyphWings() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 56 56" fill="none" aria-hidden>
+      <circle cx="28" cy="17" r="4.5" stroke={BONE} strokeWidth="2.5" />
+      <path
+        d="M28,23 v17 M22,48 l6,-8 l6,8"
+        stroke={BONE}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M25,27 q-9,-10 -20,-9 q2,7 7,9 q-4,1 -6,4 q6,4 12,1 q-3,3 -2,6 q6,0 9,-6"
+        stroke={ACTIVE}
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M31,27 q9,-10 20,-9 q-2,7 -7,9 q4,1 6,4 q-6,4 -12,1 q3,3 2,6 q-6,0 -9,-6"
+        stroke={ACTIVE}
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function GlyphTrack() {
   return (
     <svg width="44" height="44" viewBox="0 0 56 56" fill="none" aria-hidden>
@@ -452,6 +479,12 @@ const GAMES = [
     desc: "กำมือปล่อยไอน้ำขึ้นฟ้า",
     glyph: <GlyphSteam />,
   },
+  {
+    path: "/wings",
+    name: "ปีก",
+    desc: "ใส่ปีกให้ทุกคนในกล้อง เลือกได้หลายแบบ",
+    glyph: <GlyphWings />,
+  },
 ];
 
 export default function Menu() {
@@ -501,12 +534,7 @@ export default function Menu() {
 
 function BrandMark() {
   return (
-    <svg
-      aria-hidden="true"
-      className="size-12"
-      viewBox="0 0 48 48"
-      fill="none"
-    >
+    <svg aria-hidden="true" className="size-12" viewBox="0 0 48 48" fill="none">
       <path
         d="M17 6H12a5 5 0 0 0-5 5v5m24-10h5a5 5 0 0 1 5 5v5M7 32v5a5 5 0 0 0 5 5h5m14 0h5a5 5 0 0 0 5-5v-5"
         stroke="#b1ada1"
@@ -520,9 +548,30 @@ function BrandMark() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="14" cy="31" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
-      <circle cx="22" cy="22" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
-      <circle cx="28" cy="26" r="2.6" fill="#fafaf7" stroke="#c15f3c" strokeWidth="2" />
+      <circle
+        cx="14"
+        cy="31"
+        r="2.6"
+        fill="#fafaf7"
+        stroke="#c15f3c"
+        strokeWidth="2"
+      />
+      <circle
+        cx="22"
+        cy="22"
+        r="2.6"
+        fill="#fafaf7"
+        stroke="#c15f3c"
+        strokeWidth="2"
+      />
+      <circle
+        cx="28"
+        cy="26"
+        r="2.6"
+        fill="#fafaf7"
+        stroke="#c15f3c"
+        strokeWidth="2"
+      />
       <circle cx="36" cy="15" r="2.6" fill="#c15f3c" />
     </svg>
   );

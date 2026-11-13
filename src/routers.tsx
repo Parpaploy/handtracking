@@ -8,6 +8,7 @@ import SteamTracking from "./components/steam-tracking";
 import Tracking from "./components/tracking";
 import MoodTracking from "./components/mood-tracking";
 import ModelTracking from "./components/model-tracking";
+import WingsTracking from "./components/wings-tracking";
 
 export const router = createBrowserRouter([
   { path: "/", element: <Menu /> },
@@ -19,4 +20,5 @@ export const router = createBrowserRouter([
   { path: "/puzzle", element: <PuzzleHandTracking /> },
   { path: "/runner", element: <RunHandTracking /> },
   { path: "/steam", element: <SteamTracking /> },
+  { path: "/wings", element: <WingsTracking /> },
 ]);
