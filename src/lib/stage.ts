@@ -2,10 +2,24 @@ import { useEffect, useState, type RefObject } from "react";
 
 type Pt = { x: number; y: number; z?: number };
 
-/** Camera constraints shared by every game: ask for 16:9 HD so the
- *  full-screen stage needs as little cropping as possible. */
+/** Tablets / phones: touch-first devices with weaker GPUs. */
+export const IS_LOW_POWER =
+  typeof window !== "undefined" &&
+  (window.matchMedia?.("(pointer: coarse)").matches ||
+    // iPadOS reports itself as a Mac; touch points give it away.
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+
+/** Camera constraints shared by every game: 16:9 so the full-screen stage
+ *  needs little cropping. HD on computers; on tablets a smaller frame,
+ *  since every pixel is uploaded to the GPU and drawn each frame. */
 export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
-  video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+  video: IS_LOW_POWER
+    ? {
+        width: { ideal: 640 },
+        height: { ideal: 360 },
+        frameRate: { ideal: 30 },
+      }
+    : { width: { ideal: 1280 }, height: { ideal: 720 } },
 };
 
 /** Max hands MediaPipe should look for. More than 2 so several people

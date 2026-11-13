@@ -1,20 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   HandResults,
-  HandsConstructor,
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import { createTasksHands } from "../lib/hand-detector";
 import {
   CAMERA_CONSTRAINTS,
-  MAX_HANDS,
   createHandIdTracker,
   drawVideoCover,
   mapToStage,
   syncCanvasToDisplay,
 } from "../lib/stage";
 
-declare const Hands: HandsConstructor;
 
 const FINGER_LABELS = ["ซอล", "โด", "เร", "มี", "ฟา"];
 
@@ -155,16 +153,7 @@ export function useRunHandTracking(
 
     let winResetId: ReturnType<typeof setTimeout> | undefined;
 
-    const hands = new Hands({
-      locateFile: (f: string) =>
-        `/mediapipe/hands/${f}`,
-    });
-    hands.setOptions({
-      maxNumHands: MAX_HANDS,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5,
-    });
+    const hands = createTasksHands();
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(canvas);

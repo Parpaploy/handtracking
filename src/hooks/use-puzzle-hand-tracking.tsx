@@ -3,21 +3,17 @@ import type {
   DragState,
   HandResult,
   HandResults,
-  newHandsInstance,
 } from "../interfaces/hand-tracking.interface";
 import type { Landmark } from "@mediapipe/hands";
+import { createTasksHands } from "../lib/hand-detector";
 import {
   CAMERA_CONSTRAINTS,
-  MAX_HANDS,
   createHandIdTracker,
   drawVideoCover,
   mapToStage,
   syncCanvasToDisplay,
 } from "../lib/stage";
 
-declare const Hands: new (opts: {
-  locateFile: (f: string) => string;
-}) => newHandsInstance;
 
 const FINGERTIP_IDX = [4, 8, 12, 16, 20];
 const HAND_CONNECTIONS: [number, number][] = [
@@ -700,15 +696,7 @@ export function usePuzzleHandTracking(
     const assignIds = createHandIdTracker();
     let boxPlaced = false;
 
-    const hands = new Hands({
-      locateFile: (f) => `/mediapipe/hands/${f}`,
-    });
-    hands.setOptions({
-      maxNumHands: MAX_HANDS,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5,
-    });
+    const hands = createTasksHands();
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(camCanvas);

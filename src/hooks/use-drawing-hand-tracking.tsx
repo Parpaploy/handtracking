@@ -10,6 +10,7 @@ import {
 } from "../lib/one-euro";
 import {
   CAMERA_CONSTRAINTS,
+  IS_LOW_POWER,
   MAX_HANDS,
   createHandIdTracker,
   drawVideoCover,
@@ -412,7 +413,7 @@ const MARKER_ALPHA = 0.4;
 const RAINBOW_DEG_PER_PX = 0.5;
 // Long strokes are "baked" onto the drawing in chunks so re-rendering the
 // live stroke every frame stays cheap.
-const BAKE_POINTS = 240;
+const BAKE_POINTS = IS_LOW_POWER ? 80 : 240;
 // Ignore jitter: a new point must move at least this far (px).
 const MIN_POINT_STEP = 2;
 
@@ -474,19 +475,31 @@ function renderLayer(st: HandDrawState) {
       lc.lineWidth = 24;
       lc.stroke();
       break;
-    case "neon":
-      tracePath(lc, pts);
-      lc.shadowColor = st.color;
-      lc.shadowBlur = 18;
+    case "neon": {
+      // Glow from stacked soft strokes instead of shadowBlur (shadowBlur
+      // is very slow on iPad Safari, and this redraws every frame).
+      const glow: [number, number][] = [
+        [26, 0.08],
+        [18, 0.14],
+        [12, 0.28],
+      ];
       lc.strokeStyle = st.color;
-      lc.lineWidth = 7;
+      for (const [width, alpha] of glow) {
+        tracePath(lc, pts);
+        lc.globalAlpha = alpha;
+        lc.lineWidth = width;
+        lc.stroke();
+      }
+      lc.globalAlpha = 1;
+      tracePath(lc, pts);
+      lc.lineWidth = 6;
       lc.stroke();
-      lc.shadowBlur = 0;
       tracePath(lc, pts);
       lc.strokeStyle = "#ffffff";
       lc.lineWidth = 2.5;
       lc.stroke();
       break;
+    }
     case "rainbow": {
       // One short curve piece per point. Each piece gets a gradient from
       // the hue at its start to the hue at its end (hue = distance

@@ -3,13 +3,12 @@ import type {
   FaceMeshConstructorLocal,
   FaceResultsLocal,
   HandResultsLocal,
-  HandsConstructorLocal,
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import { createTasksHands } from "../lib/hand-detector";
 import {
   CAMERA_CONSTRAINTS,
-  MAX_HANDS,
   createHandIdTracker,
   drawVideoCover,
   mapToStage,
@@ -17,7 +16,6 @@ import {
   syncCanvasToDisplay,
 } from "../lib/stage";
 
-declare const Hands: HandsConstructorLocal;
 declare const FaceMesh: FaceMeshConstructorLocal;
 
 // Fog blur radius (CSS px). Applied with a CSS filter on its own canvas
@@ -190,15 +188,7 @@ export function useSteamHandTracking(
 
     const assignIds = createHandIdTracker();
 
-    const hands = new Hands({
-      locateFile: (f: string) => `/mediapipe/hands/${f}`,
-    });
-    hands.setOptions({
-      maxNumHands: MAX_HANDS,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5,
-    });
+    const hands = createTasksHands();
     hands.onResults((results: HandResultsLocal) => {
       const w = canvas.width;
       const h = canvas.height;
@@ -264,7 +254,9 @@ export function useSteamHandTracking(
     });
     faceMesh.setOptions({
       maxNumFaces: 1,
-      refineLandmarks: true,
+      // Only lip/brow/chin points are used; the refined iris/lip model
+      // isn't needed and is costly on tablets.
+      refineLandmarks: false,
       minDetectionConfidence: 0.6,
       minTrackingConfidence: 0.5,
     });
@@ -394,11 +386,14 @@ export function useSteamHandTracking(
       animId = requestAnimationFrame(renderLoop);
     };
 
+    let detectFrame = 0;
     const detectLoop = async () => {
       if (cancelled) return;
+      detectFrame++;
       if (video.readyState === 4) {
         await hands.send({ image: video });
-        await faceMesh.send({ image: video });
+        // Mouth only needs ~15 checks/s: run the face model every other frame.
+        if (detectFrame % 2 === 0) await faceMesh.send({ image: video });
       }
       if (cancelled) return;
       detectId = requestAnimationFrame(detectLoop);

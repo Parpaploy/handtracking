@@ -1,20 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type {
   HandResults,
-  HandsConstructor,
   Landmark,
 } from "../interfaces/hand-tracking.interface";
 
+import { createTasksHands } from "../lib/hand-detector";
 import {
   CAMERA_CONSTRAINTS,
-  MAX_HANDS,
   createHandIdTracker,
   drawVideoCover,
   mapToStage,
   syncCanvasToDisplay,
 } from "../lib/stage";
 
-declare const Hands: HandsConstructor;
 
 const FINGER_LABELS = ["ซอล", "โด", "เร", "มี", "ฟา"];
 const FINGER_NOTES = [[67], [60], [62], [64], [65]];
@@ -200,16 +198,7 @@ export function usePianoHandTracking(
     syncCanvasToDisplay(canvas);
     const assignIds = createHandIdTracker();
 
-    const hands = new Hands({
-      locateFile: (f: string) =>
-        `/mediapipe/hands/${f}`,
-    });
-    hands.setOptions({
-      maxNumHands: MAX_HANDS,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5,
-    });
+    const hands = createTasksHands();
 
     hands.onResults((results: HandResults) => {
       syncCanvasToDisplay(canvas);
