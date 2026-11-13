@@ -134,6 +134,9 @@ function PerfHud() {
         {perfStats.delegate} · max {perfStats.numHands} มือ
         {perfStats.downgraded ? " (ลดอัตโนมัติ)" : ""}
       </div>
+      <div>กล้อง {perfStats.camera}</div>
+      <div className="max-w-64 truncate opacity-70">{perfStats.renderer}</div>
+      <div>โหมด {perfStats.level}</div>
     </div>
   );
 }
